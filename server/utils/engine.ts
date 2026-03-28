@@ -19,6 +19,7 @@ interface EngineState {
 	latestClipBuffer: Buffer | null;
 	wakeWordPending: boolean;
 	sttProcessing: boolean;
+	lastAnswerTime: number;
 }
 
 const state: EngineState = {
@@ -36,6 +37,7 @@ const state: EngineState = {
 	latestClipBuffer: null,
 	wakeWordPending: false,
 	sttProcessing: false,
+	lastAnswerTime: 0,
 };
 
 function broadcast(message: Record<string, unknown>) {
@@ -88,6 +90,13 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 			const question = state.pendingQuestion;
 			state.pendingQuestion = null;
 
+			// Skip ambient clips that arrive too soon after an answer
+			// to avoid redundant descriptions
+			if (!question && Date.now() - state.lastAnswerTime < state.intervalMs) {
+				log("info", "engine", "Skipping ambient clip — answer cooldown active");
+				return;
+			}
+
 			log(
 				"info",
 				"engine",
@@ -118,6 +127,9 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 			}
 
 			const ttsBuffer = await textToSpeech(description);
+			if (isQuestion) {
+				state.lastAnswerTime = Date.now();
+			}
 			broadcast({
 				type: "audio",
 				buffer: ttsBuffer.toString(),
