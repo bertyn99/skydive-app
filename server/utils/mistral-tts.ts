@@ -7,7 +7,7 @@ export async function textToSpeech(text: string): Promise<string> {
 	const body = {
 		input: text,
 		model: "voxtral-mini-tts-2603",
-		voice_id: "en_paul_happy",
+		voice_id: "fr_marie_neutral",
 		response_format: "mp3",
 	};
 
