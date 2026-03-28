@@ -1,5 +1,8 @@
 import { defineNitroConfig } from "nitro/config";
 
 export default defineNitroConfig({
-    serverDir: "./server",
+	serverDir: "./server",
+	experimental: {
+		websocket: true,
+	},
 });
