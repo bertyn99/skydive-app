@@ -5,6 +5,10 @@ import {
 	stopCapture as browserStopCapture,
 	recordClip,
 } from "../utils/capture";
+import {
+	startVoiceRecognition,
+	type VoiceStatus,
+} from "../utils/voice";
 
 export interface LogEntry {
 	id: number;
@@ -29,7 +33,12 @@ interface AppState {
 
 	// Audio
 	isPlaying: boolean;
-	audioQueue: string[];
+	audioQueue: Array<{ buffer: string; priority: "answer" | "ambient"; text: string }>;
+	nowPlayingText: string | null;
+
+	// Voice
+	voiceStatus: VoiceStatus;
+	lastQuestion: string | null;
 
 	// Logs
 	logs: LogEntry[];
@@ -43,6 +52,9 @@ interface AppState {
 	sendCommand: (command: string, value?: unknown) => void;
 	startCapture: () => Promise<void>;
 	stopCapture: () => void;
+	startVoice: () => void;
+	stopVoice: () => void;
+	stopCurrentAudio: () => void;
 	addLog: (level: LogEntry["level"], source: string, message: string) => void;
 	clearLogs: () => void;
 	setIsPlaying: (playing: boolean) => void;
@@ -51,6 +63,8 @@ interface AppState {
 
 // Persistent AudioContext, unlocked once on user gesture
 let audioCtx: AudioContext | null = null;
+let currentAudioSource: AudioBufferSourceNode | null = null;
+let stopVoiceFn: (() => void) | null = null;
 
 function getAudioContext(): AudioContext {
 	if (!audioCtx) {
@@ -77,6 +91,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 	lastDescription: null,
 	isPlaying: false,
 	audioQueue: [],
+	nowPlayingText: null,
+	voiceStatus: "off" as VoiceStatus,
+	lastQuestion: null,
 	logs: [],
 	logCounter: 0,
 	gameState: null,
@@ -145,6 +162,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 			get().sendCommand("start");
 			get().addLog("info", "capture", "Screen capture started");
 
+			// Auto-start voice recognition
+			get().startVoice();
+
 			// Stop capture if user clicks "Stop sharing" in browser chrome
 			stream.getVideoTracks()[0].addEventListener("ended", () => {
 				get().stopCapture();
@@ -201,7 +221,54 @@ export const useAppStore = create<AppState>((set, get) => ({
 		}
 		set({ isCapturing: false, mediaStream: null });
 		get().sendCommand("stop");
+		get().stopVoice();
 		get().addLog("info", "capture", "Screen capture stopped");
+	},
+
+	startVoice: () => {
+		if (stopVoiceFn) return; // already listening
+		const { ws } = get();
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			get().addLog("warn", "voice", "Cannot start voice: no WebSocket connection");
+			return;
+		}
+		stopVoiceFn = startVoiceRecognition(
+			{
+				onQuestion: (text) => {
+					get().addLog("info", "voice", `Question: ${text}`);
+					set({ lastQuestion: text });
+					get().stopCurrentAudio();
+				},
+				onStatusChange: (status) => {
+					set({ voiceStatus: status });
+				},
+				isEnabled: () => get().isCapturing,
+			},
+			ws,
+		);
+		get().addLog("info", "voice", "Voice recognition started (wake word: Guide)");
+	},
+
+	stopVoice: () => {
+		if (stopVoiceFn) {
+			stopVoiceFn();
+			stopVoiceFn = null;
+		}
+		set({ voiceStatus: "off" as VoiceStatus });
+	},
+
+	stopCurrentAudio: () => {
+		// Stop currently playing audio and clear queue
+		if (currentAudioSource) {
+			try {
+				currentAudioSource.onended = null;
+				currentAudioSource.stop();
+			} catch {
+				// may already be stopped
+			}
+			currentAudioSource = null;
+		}
+		set({ isPlaying: false, audioQueue: [], nowPlayingText: null });
 	},
 
 	addLog: (level, source, message) => {
@@ -223,10 +290,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 		if (isPlaying || audioQueue.length === 0) return;
 
 		const [next, ...rest] = audioQueue;
-		set({ audioQueue: rest, isPlaying: true });
+		set({ audioQueue: rest, isPlaying: true, nowPlayingText: `[${next.priority}] ${next.text}` });
 
 		const ctx = getAudioContext();
-		const raw = atob(next);
+		const raw = atob(next.buffer);
 		const bytes = new Uint8Array(raw.length);
 		for (let i = 0; i < raw.length; i++) {
 			bytes[i] = raw.charCodeAt(i);
@@ -239,9 +306,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 				source.buffer = audioBuffer;
 				source.connect(ctx.destination);
 				source.onended = () => {
-					set({ isPlaying: false });
+					currentAudioSource = null;
+					set({ isPlaying: false, nowPlayingText: null });
 					get().playNextAudio();
 				};
+				currentAudioSource = source;
 				source.start();
 			},
 			() => {
@@ -265,10 +334,26 @@ function handleMessage(
 			set({ lastDescription: data.text as string });
 			break;
 
-		case "audio":
-			set((s) => ({ audioQueue: [...s.audioQueue, data.buffer as string] }));
-			get().playNextAudio();
+		case "audio": {
+			const incoming = {
+				buffer: data.buffer as string,
+				priority: (data.priority as "answer" | "ambient") ?? "ambient",
+				text: (data.text as string) ?? "",
+			};
+			const { isPlaying, audioQueue } = get();
+			if (isPlaying) {
+				const queued = audioQueue[0];
+				if (queued?.priority === "answer" && incoming.priority === "ambient") {
+					// Don't replace a queued answer with ambient audio
+					break;
+				}
+				set({ audioQueue: [incoming] });
+			} else {
+				set({ audioQueue: [incoming] });
+				get().playNextAudio();
+			}
 			break;
+		}
 
 		case "status":
 			set({
@@ -289,6 +374,16 @@ function handleMessage(
 				gameState: data.data as GameStateData,
 				gameStateReceivedAt: Date.now(),
 			});
+			break;
+
+		case "voice_question":
+			set({ lastQuestion: data.text as string });
+			get().stopCurrentAudio();
+			get().addLog("info", "voice", `Question detected: ${data.text}`);
+			break;
+
+		case "voice_status":
+			set({ voiceStatus: data.status as VoiceStatus });
 			break;
 	}
 }

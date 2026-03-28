@@ -6,6 +6,22 @@ export function StatusBar() {
 	const isPlaying = useAppStore((s) => s.isPlaying);
 	const captureInterval = useAppStore((s) => s.captureInterval);
 	const audioQueue = useAppStore((s) => s.audioQueue);
+	const voiceStatus = useAppStore((s) => s.voiceStatus);
+	const lastQuestion = useAppStore((s) => s.lastQuestion);
+
+	const voiceDotClass =
+		voiceStatus === "wake-detected"
+			? "connected"
+			: voiceStatus === "listening"
+				? "idle"
+				: "disconnected";
+
+	const voiceLabel =
+		voiceStatus === "wake-detected"
+			? "Wake detected"
+			: voiceStatus === "listening"
+				? "Listening"
+				: "Off";
 
 	return (
 		<div className="status-bar">
@@ -29,6 +45,20 @@ export function StatusBar() {
 					: audioQueue.length > 0
 						? `(${audioQueue.length} queued)`
 						: "Idle"}
+			</div>
+			<div className="status-item">
+				<span className={`status-dot ${voiceDotClass}`} />
+				Voice: {voiceLabel}
+				{lastQuestion && voiceStatus !== "off" && (
+					<span className="voice-question" title={lastQuestion}>
+						{" "}
+						— "
+						{lastQuestion.length > 30
+							? `${lastQuestion.slice(0, 30)}…`
+							: lastQuestion}
+						"
+					</span>
+				)}
 			</div>
 		</div>
 	);

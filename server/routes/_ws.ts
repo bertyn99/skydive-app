@@ -1,6 +1,8 @@
 import { defineWebSocketHandler } from "nitro";
 import {
+	processAudioChunk,
 	processClip,
+	processQuestion,
 	registerClient,
 	start,
 	stop,
@@ -40,6 +42,22 @@ export default defineWebSocketHandler({
 						updateConfig({ systemPrompt: data.value });
 					}
 					break;
+				case "question":
+					if (typeof data.text === "string" && data.text.trim()) {
+						processQuestion(data.text.trim());
+					}
+					break;
+				case "audio_chunk":
+					if (typeof data.audio === "string") {
+						const audioBuffer = Buffer.from(data.audio, "base64");
+						processAudioChunk(
+							audioBuffer,
+							typeof data.mimeType === "string"
+								? data.mimeType
+								: "audio/webm",
+						);
+					}
+					break;
 				default:
 					peer.send(
 						JSON.stringify({
@@ -49,7 +67,8 @@ export default defineWebSocketHandler({
 					);
 			}
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
 			peer.send(
 				JSON.stringify({
 					type: "error",
