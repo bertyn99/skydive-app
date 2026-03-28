@@ -1,15 +1,9 @@
-import { useEffect, useRef } from "react";
 import { useAppStore } from "../stores/useAppStore";
 
 export function DebugLogs() {
 	const logs = useAppStore((s) => s.logs);
 	const clearLogs = useAppStore((s) => s.clearLogs);
 	const lastDescription = useAppStore((s) => s.lastDescription);
-	const bottomRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [logs.length]);
 
 	return (
 		<div className="panel debug-logs">
@@ -36,7 +30,6 @@ export function DebugLogs() {
 						<span className="log-message">{log.message}</span>
 					</div>
 				))}
-				<div ref={bottomRef} />
 			</div>
 		</div>
 	);

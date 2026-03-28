@@ -1,14 +1,13 @@
 import type { Peer } from "crossws";
-import { captureScreen } from "./capture";
-import { describeFrame } from "./gemini";
+import { recordClip } from "./capture";
+import { clearHistory, describeVideo } from "./gemini";
 
 interface EngineState {
 	isRunning: boolean;
 	intervalMs: number;
 	systemPrompt: string;
 	clients: Set<Peer>;
-	timer: ReturnType<typeof setInterval> | null;
-	processing: boolean;
+	abortController: AbortController | null;
 }
 
 const state: EngineState = {
@@ -16,8 +15,7 @@ const state: EngineState = {
 	intervalMs: 3000,
 	systemPrompt: "",
 	clients: new Set(),
-	timer: null,
-	processing: false,
+	abortController: null,
 };
 
 function broadcast(message: Record<string, unknown>) {
@@ -41,60 +39,56 @@ function log(
 	console.log(`[${source}] ${message}`);
 }
 
-async function tick() {
-	if (state.processing) {
-		log("warn", "engine", "Previous tick still processing, skipping");
-		return;
-	}
+async function loop(signal: AbortSignal) {
+	while (!signal.aborted) {
+		try {
+			// 1. Record video clip for intervalMs duration
+			const startCapture = Date.now();
+			log("info", "capture", `Recording ${state.intervalMs}ms clip...`);
+			const clip = await recordClip(state.intervalMs);
+			const captureMs = Date.now() - startCapture;
+			log("info", "capture", `Clip recorded in ${captureMs}ms (${(clip.sizeBytes / 1024).toFixed(0)}KB)`);
 
-	state.processing = true;
+			if (signal.aborted) break;
 
-	try {
-		// 1. Capture screen
-		const startCapture = Date.now();
-		const frame = await captureScreen();
-		const captureMs = Date.now() - startCapture;
-		log("info", "capture", `Screen captured in ${captureMs}ms`);
+			// 2. Broadcast thumbnail to dashboard
+			broadcast({
+				type: "frame",
+				base64: clip.thumbnail.toString("base64"),
+				timestamp: clip.timestamp,
+			});
 
-		// 2. Broadcast frame to dashboard
-		broadcast({
-			type: "frame",
-			base64: frame.base64,
-			timestamp: frame.timestamp,
-		});
+			// 3. Describe with Gemini
+			const startGemini = Date.now();
+			const description = await describeVideo(
+				clip.video,
+				state.systemPrompt || undefined,
+			);
+			const geminiMs = Date.now() - startGemini;
+			log("info", "gemini", `Description (${geminiMs}ms): ${description}`);
 
-		// 3. Describe with Gemini
-		const startGemini = Date.now();
-		const description = await describeFrame(
-			frame.base64,
-			state.systemPrompt || undefined,
-		);
-		const geminiMs = Date.now() - startGemini;
-		log("info", "gemini", `Description (${geminiMs}ms): ${description}`);
+			broadcast({
+				type: "description",
+				text: description,
+				latency: geminiMs,
+			});
 
-		broadcast({
-			type: "description",
-			text: description,
-			latency: geminiMs,
-		});
-
-		// 4. TTS with Mistral
-		// const startTts = Date.now();
-		// const audioBase64 = await textToSpeech(description);
-		// const ttsMs = Date.now() - startTts;
-		// log("info", "tts", `Audio generated in ${ttsMs}ms`);
-
-		// broadcast({
-		// 	type: "audio",
-		// 	data: audioBase64,
-		// 	description,
-		// 	latency: ttsMs,
-		// });
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log("error", "engine", `Tick error: ${msg}`);
-	} finally {
-		state.processing = false;
+			// 4. TTS with Mistral (commented out)
+			// try {
+			// 	const startTts = Date.now();
+			// 	const audioBase64 = await textToSpeech(description);
+			// 	const ttsMs = Date.now() - startTts;
+			// 	log("info", "tts", `Audio generated in ${ttsMs}ms`);
+			// 	broadcast({ type: "audio", data: audioBase64, description, latency: ttsMs });
+			// } catch (ttsErr: unknown) {
+			// 	const ttsMsg = ttsErr instanceof Error ? ttsErr.message : String(ttsErr);
+			// 	log("error", "tts", `TTS error: ${ttsMsg}`);
+			// }
+		} catch (err: unknown) {
+			if (signal.aborted) break;
+			const msg = err instanceof Error ? err.message : String(err);
+			log("error", "engine", `Tick error: ${msg}`);
+		}
 	}
 }
 
@@ -104,12 +98,11 @@ export function start() {
 	log(
 		"info",
 		"engine",
-		`Starting capture loop (${state.intervalMs}ms interval)`,
+		`Starting video capture loop (${state.intervalMs}ms clips)`,
 	);
 
-	// Run first tick immediately
-	tick();
-	state.timer = setInterval(tick, state.intervalMs);
+	state.abortController = new AbortController();
+	loop(state.abortController.signal);
 
 	broadcast({ type: "status", isRunning: true, intervalMs: state.intervalMs });
 }
@@ -118,11 +111,12 @@ export function stop() {
 	if (!state.isRunning) return;
 	state.isRunning = false;
 
-	if (state.timer) {
-		clearInterval(state.timer);
-		state.timer = null;
+	if (state.abortController) {
+		state.abortController.abort();
+		state.abortController = null;
 	}
 
+	clearHistory();
 	log("info", "engine", "Capture loop stopped");
 	broadcast({ type: "status", isRunning: false, intervalMs: state.intervalMs });
 }
@@ -137,12 +131,6 @@ export function updateConfig(config: {
 	) {
 		state.intervalMs = Math.max(1000, Math.min(10000, config.intervalMs));
 		log("info", "engine", `Interval updated to ${state.intervalMs}ms`);
-
-		// Restart timer if running
-		if (state.isRunning && state.timer) {
-			clearInterval(state.timer);
-			state.timer = setInterval(tick, state.intervalMs);
-		}
 	}
 
 	if (config.systemPrompt !== undefined) {
