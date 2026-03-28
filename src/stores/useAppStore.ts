@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { GameStateData } from "../../server/utils/protocol";
 
 export interface LogEntry {
 	id: number;
@@ -28,6 +29,8 @@ interface AppState {
 	// Logs
 	logs: LogEntry[];
 	logCounter: number;
+	gameState: GameStateData | null;
+	gameStateReceivedAt: number | null;
 
 	// Actions
 	connect: () => void;
@@ -50,6 +53,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 	audioQueue: [],
 	logs: [],
 	logCounter: 0,
+	gameState: null,
+	gameStateReceivedAt: null,
 
 	connect: () => {
 		const { ws } = get();
@@ -177,6 +182,13 @@ function handleMessage(
 				data.source as string,
 				data.message as string,
 			);
+			break;
+
+		case "gameState":
+			set({
+				gameState: data.data as GameStateData,
+				gameStateReceivedAt: Date.now(),
+			});
 			break;
 	}
 }

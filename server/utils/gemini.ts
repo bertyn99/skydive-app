@@ -1,5 +1,6 @@
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
+import type { GameStateData } from "./protocol";
 
 const DEFAULT_SYSTEM_PROMPT = `
 Tu es **SkyGuide**, un assistant vocal intelligent conçu pour permettre à des joueurs aveugles ou malvoyants de jouer à Skyrim.
@@ -142,6 +143,7 @@ export function clearHistory() {
 export async function describeVideo(
 	videoBuffer: Buffer,
 	systemPrompt?: string,
+	gameState?: GameStateData,
 ): Promise<string> {
 	// Build context from recent observations
 	let userText = "Voici un extrait vidéo du jeu. Que se passe-t-il ?";

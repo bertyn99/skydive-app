@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { DebugLogs } from "./components/DebugLogs";
+import { GameStatePanel } from "./components/GameStatePanel";
 import { ScreenViewer } from "./components/ScreenViewer";
 import { StatusBar } from "./components/StatusBar";
 import { useAppStore } from "./stores/useAppStore";
@@ -24,6 +25,7 @@ function App() {
 				<ScreenViewer />
 				<ConfigPanel />
 				<DebugLogs />
+				<GameStatePanel />
 			</div>
 		</div>
 	);
