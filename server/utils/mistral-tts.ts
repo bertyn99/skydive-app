@@ -6,7 +6,8 @@ export async function textToSpeech(text: string): Promise<string> {
 
 	const body = {
 		input: text,
-		model: null,
+		model: "voxtral-mini-tts-2603",
+		voice_id: "en_paul_happy",
 		response_format: "mp3",
 	};
 
@@ -39,6 +40,14 @@ export async function textToSpeech(text: string): Promise<string> {
 		);
 		throw new Error("Mistral TTS response missing audio_data field");
 	}
+
+	// Save audio to file for debugging
+	// const fs = await import("fs/promises");
+	// const path = await import("path");
+	// const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	// const debugPath = path.join(process.cwd(), `debug-audio-${timestamp}.mp3`);
+	// await fs.writeFile(debugPath, Buffer.from(data.audio_data, "base64"));
+	// console.log(`[mistral-tts] Audio saved to: ${debugPath}`);
 
 	return data.audio_data;
 }

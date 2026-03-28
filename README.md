@@ -1,75 +1,75 @@
-# React + TypeScript + Vite
+# SkyGuide — Skyrim Accessibility Assistant
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A real-time screen reader for blind and visually impaired gamers. The app captures
+the game screen, sends the video to an AI model (Gemini) that describes the scene,
+and reads the description aloud via text-to-speech.
 
-Currently, two official plugins are available:
+## How it works
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. **Browser** captures the screen via `getDisplayMedia()` and encodes short video
+   clips using [MediaBunny](https://mediabunny.dev/) (H.264 / MP4, in-browser via WebCodecs).
+2. Clips are sent to the **Nitro server** over WebSocket.
+3. The server forwards each clip to **Gemini 3.1 Flash Lite** for scene description.
+4. The description is broadcast back to the browser and spoken aloud via **Mistral TTS**.
 
-## React Compiler
-
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+Browser                         Server
+┌─────────────────┐      ┌──────────────────────┐
+│ getDisplayMedia  │      │ Nitro WebSocket      │
+│ → MediaBunny    │─WS──▶│ → Gemini (describe)  │
+│   (MP4 encode)  │      │ → Mistral TTS        │
+│                 │◀─WS──│ → broadcast desc/audio│
+│ <video> preview │      └──────────────────────┘
+└─────────────────┘
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Prerequisites
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **Node.js** 20+
+- A **Chromium-based browser** (Chrome, Edge, Arc, Brave) — WebCodecs is required
+- A **Google AI** API key for Gemini (`GOOGLE_GENERATIVE_AI_API_KEY`)
+- A **Mistral** API key for TTS (`MISTRAL_API_KEY`)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Getting started
+
+```bash
+npm install
+npm run dev
 ```
+
+Open the app in Chrome, click **Start Capture**, and select the game window to share.
+
+## Project structure
+
+```
+src/                        # Browser (React + Zustand)
+  utils/capture.ts          # getDisplayMedia + MediaBunny recording
+  stores/useAppStore.ts     # State management + capture loop
+  components/               # UI panels (ScreenViewer, ConfigPanel, DebugLogs, …)
+
+server/                     # Nitro server
+  routes/_ws.ts             # WebSocket handler
+  utils/engine.ts           # Clip processing + broadcast
+  utils/gemini.ts           # Gemini AI integration
+  utils/mistral-tts.ts      # Text-to-speech
+```
+
+## Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Capture interval | 3 000 ms | Duration of each video clip (1–10 s) |
+| System prompt | Built-in French prompt | Override via the UI textarea |
+
+## Tech stack
+
+- **React 19** + **Zustand** — frontend
+- **Vite 8** — dev server & bundler
+- **Nitro** — backend (WebSocket + API)
+- **MediaBunny** — in-browser video encoding (replaces FFmpeg)
+- **Vercel AI SDK** + **Gemini** — scene description
+- **Mistral TTS** — text-to-speech
+
+## License
+
+Private.

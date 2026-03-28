@@ -49,6 +49,16 @@ interface AppState {
 	playNextAudio: () => void;
 }
 
+// Persistent AudioContext, unlocked once on user gesture
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+	if (!audioCtx) {
+		audioCtx = new AudioContext();
+	}
+	return audioCtx;
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
 	let binary = "";
@@ -123,6 +133,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 	startCapture: async () => {
 		try {
+			// Unlock AudioContext while we're still in the user gesture
+			const ctx = getAudioContext();
+			if (ctx.state === "suspended") {
+				await ctx.resume();
+			}
+
 			const stream = await browserStartCapture();
 			set({ mediaStream: stream, isCapturing: true });
 
@@ -209,24 +225,31 @@ export const useAppStore = create<AppState>((set, get) => ({
 		const [next, ...rest] = audioQueue;
 		set({ audioQueue: rest, isPlaying: true });
 
-		const audio = new Audio(`data:audio/mp3;base64,${next}`);
-		audio.onended = () => {
-			set({ isPlaying: false });
-			get().playNextAudio();
-		};
-		audio.onerror = () => {
-			set({ isPlaying: false });
-			get().addLog("error", "audio", "Failed to play audio clip");
-			get().playNextAudio();
-		};
-		audio.play().catch(() => {
-			set({ isPlaying: false });
-			get().addLog(
-				"error",
-				"audio",
-				"Audio playback blocked (user interaction required)",
-			);
-		});
+		const ctx = getAudioContext();
+		const raw = atob(next);
+		const bytes = new Uint8Array(raw.length);
+		for (let i = 0; i < raw.length; i++) {
+			bytes[i] = raw.charCodeAt(i);
+		}
+
+		ctx.decodeAudioData(
+			bytes.buffer,
+			(audioBuffer) => {
+				const source = ctx.createBufferSource();
+				source.buffer = audioBuffer;
+				source.connect(ctx.destination);
+				source.onended = () => {
+					set({ isPlaying: false });
+					get().playNextAudio();
+				};
+				source.start();
+			},
+			() => {
+				set({ isPlaying: false });
+				get().addLog("error", "audio", "Failed to decode audio clip");
+				get().playNextAudio();
+			},
+		);
 	},
 }));
 
@@ -243,7 +266,7 @@ function handleMessage(
 			break;
 
 		case "audio":
-			set((s) => ({ audioQueue: [...s.audioQueue, data.data as string] }));
+			set((s) => ({ audioQueue: [...s.audioQueue, data.buffer as string] }));
 			get().playNextAudio();
 			break;
 
