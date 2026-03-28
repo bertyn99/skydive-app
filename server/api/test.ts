@@ -1,5 +1,6 @@
-import { defineNitroConfig } from "nitro/config";
+import { defineEventHandler } from "h3";
 
-export default defineNitroConfig({
-    serverDir: "./server",
-});
+export default defineEventHandler(() => ({
+	status: "ok",
+	message: "test route working",
+}));

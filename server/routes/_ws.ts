@@ -41,9 +41,13 @@ export default defineWebSocketHandler({
 						}),
 					);
 			}
-		} catch {
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
 			peer.send(
-				JSON.stringify({ type: "error", message: "Invalid JSON message" }),
+				JSON.stringify({
+					type: "error",
+					message: `Invalid message: ${errorMessage}`,
+				}),
 			);
 		}
 	},
