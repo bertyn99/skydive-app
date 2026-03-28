@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import type { GameStateData } from "../../server/utils/protocol";
+import {
+	startCapture as browserStartCapture,
+	stopCapture as browserStopCapture,
+	recordClip,
+} from "../utils/capture";
 
 export interface LogEntry {
 	id: number;
