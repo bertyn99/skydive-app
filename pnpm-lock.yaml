@@ -17,6 +17,9 @@ importers:
       h3:
         specifier: 2.0.1-rc.20
         version: 2.0.1-rc.20(crossws@0.4.4(srvx@0.11.13))
+      mediabunny:
+        specifier: ^1.40.1
+        version: 1.40.1
       nitro:
         specifier: 3.0.260311-beta
         version: 3.0.260311-beta(vite@8.0.3(@types/node@24.12.0))
