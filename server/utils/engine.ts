@@ -1,7 +1,6 @@
 import type { Peer } from "crossws";
 import { captureScreen } from "./capture";
 import { describeFrame } from "./gemini";
-import { textToSpeech } from "./mistral-tts";
 
 interface EngineState {
 	isRunning: boolean;
@@ -80,17 +79,17 @@ async function tick() {
 		});
 
 		// 4. TTS with Mistral
-		const startTts = Date.now();
-		const audioBase64 = await textToSpeech(description);
-		const ttsMs = Date.now() - startTts;
-		log("info", "tts", `Audio generated in ${ttsMs}ms`);
+		// const startTts = Date.now();
+		// const audioBase64 = await textToSpeech(description);
+		// const ttsMs = Date.now() - startTts;
+		// log("info", "tts", `Audio generated in ${ttsMs}ms`);
 
-		broadcast({
-			type: "audio",
-			data: audioBase64,
-			description,
-			latency: ttsMs,
-		});
+		// broadcast({
+		// 	type: "audio",
+		// 	data: audioBase64,
+		// 	description,
+		// 	latency: ttsMs,
+		// });
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log("error", "engine", `Tick error: ${msg}`);

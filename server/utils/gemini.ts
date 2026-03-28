@@ -9,7 +9,7 @@ export async function describeFrame(
 	systemPrompt?: string,
 ): Promise<string> {
 	const { text } = await generateText({
-		model: google("gemini-2.0-flash"),
+		model: google("gemini-3.1-flash-lite-preview"),
 		system: systemPrompt || DEFAULT_SYSTEM_PROMPT,
 		messages: [
 			{

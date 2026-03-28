@@ -16,7 +16,7 @@ function App() {
 	return (
 		<div className="dashboard">
 			<header className="dashboard-header">
-				<h1>Skydive</h1>
+				<h1>Sky Guide</h1>
 				<span className="subtitle">Skyrim Accessibility Assistant</span>
 			</header>
 			<StatusBar />
