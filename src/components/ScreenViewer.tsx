@@ -1,21 +1,26 @@
+import { useEffect, useRef } from "react";
 import { useAppStore } from "../stores/useAppStore";
 
 export function ScreenViewer() {
-	const currentFrame = useAppStore((s) => s.currentFrame);
+	const mediaStream = useAppStore((s) => s.mediaStream);
 	const isCapturing = useAppStore((s) => s.isCapturing);
+	const videoRef = useRef<HTMLVideoElement>(null);
+
+	useEffect(() => {
+		if (videoRef.current) {
+			videoRef.current.srcObject = mediaStream;
+		}
+	}, [mediaStream]);
 
 	return (
 		<div className="panel screen-viewer">
 			<h2>Screen Capture</h2>
 			<div className="frame-container">
-				{currentFrame ? (
-					<img
-						src={`data:image/jpeg;base64,${currentFrame}`}
-						alt="Game screen capture"
-					/>
+				{mediaStream ? (
+					<video ref={videoRef} autoPlay muted playsInline />
 				) : (
 					<div className="placeholder">
-						{isCapturing ? "Waiting for first frame..." : "Capture stopped"}
+						{isCapturing ? "Starting capture..." : "Capture stopped"}
 					</div>
 				)}
 			</div>

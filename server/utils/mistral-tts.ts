@@ -6,11 +6,14 @@ export async function textToSpeech(text: string): Promise<string> {
 
 	const body = {
 		input: text,
-		model: "mistral-tts-latest",
+		model: null,
 		response_format: "mp3",
 	};
 
-	console.log("[mistral-tts] Sending request:", JSON.stringify({ ...body, input: body.input.slice(0, 80) + "..." }));
+	console.log(
+		"[mistral-tts] Sending request:",
+		JSON.stringify({ ...body, input: body.input.slice(0, 80) + "..." }),
+	);
 
 	const response = await fetch("https://api.mistral.ai/v1/audio/speech", {
 		method: "POST",
@@ -30,7 +33,10 @@ export async function textToSpeech(text: string): Promise<string> {
 	const data = (await response.json()) as { audio_data?: string };
 
 	if (!data.audio_data) {
-		console.error("[mistral-tts] Response missing audio_data:", JSON.stringify(data).slice(0, 200));
+		console.error(
+			"[mistral-tts] Response missing audio_data:",
+			JSON.stringify(data).slice(0, 200),
+		);
 		throw new Error("Mistral TTS response missing audio_data field");
 	}
 

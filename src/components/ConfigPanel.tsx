@@ -6,15 +6,22 @@ export function ConfigPanel() {
 	const captureInterval = useAppStore((s) => s.captureInterval);
 	const serverConnected = useAppStore((s) => s.serverConnected);
 	const sendCommand = useAppStore((s) => s.sendCommand);
+	const startCapture = useAppStore((s) => s.startCapture);
+	const stopCapture = useAppStore((s) => s.stopCapture);
 
 	const [promptDraft, setPromptDraft] = useState("");
 
 	const toggleCapture = () => {
-		sendCommand(isCapturing ? "stop" : "start");
+		if (isCapturing) {
+			stopCapture();
+		} else {
+			startCapture();
+		}
 	};
 
 	const handleIntervalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const value = Number(e.target.value);
+		useAppStore.setState({ captureInterval: value });
 		sendCommand("setInterval", value);
 	};
 

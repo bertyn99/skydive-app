@@ -1,5 +1,6 @@
 import { defineWebSocketHandler } from "nitro";
 import {
+	processClip,
 	registerClient,
 	start,
 	stop,
@@ -22,6 +23,12 @@ export default defineWebSocketHandler({
 					break;
 				case "stop":
 					stop();
+					break;
+				case "clip":
+					if (typeof data.video === "string") {
+						const buffer = Buffer.from(data.video, "base64");
+						processClip(buffer, data.durationMs ?? 0);
+					}
 					break;
 				case "setInterval":
 					if (typeof data.value === "number") {

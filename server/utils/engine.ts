@@ -1,8 +1,7 @@
 import type { Peer } from "crossws";
-import { recordClip } from "./capture";
 import { clearHistory, describeVideo } from "./gemini";
 import { textToSpeech } from "./mistral-tts";
-import type { GameStatePayload, GameStateData } from "./protocol";
+import type { GameStateData, GameStatePayload } from "./protocol";
 
 interface EngineState {
 	isRunning: boolean;
@@ -51,29 +50,21 @@ function log(
 	console.log(`[${source}] ${message}`);
 }
 
-async function loop(signal: AbortSignal) {
-	while (!signal.aborted) {
+// Sequential processing of clips via promise chain
+let processingChain = Promise.resolve();
+
+export function processClip(videoBuffer: Buffer, durationMs: number) {
+	processingChain = processingChain.then(async () => {
 		try {
-			// 1. Record video clip for intervalMs duration
-			const startCapture = Date.now();
-			log("info", "capture", `Recording ${state.intervalMs}ms clip...`);
-			const clip = await recordClip(state.intervalMs);
-			const captureMs = Date.now() - startCapture;
-			log("info", "capture", `Clip recorded in ${captureMs}ms (${(clip.sizeBytes / 1024).toFixed(0)}KB)`);
+			log(
+				"info",
+				"engine",
+				`Processing clip (${(videoBuffer.length / 1024).toFixed(0)}KB, ${durationMs}ms)`,
+			);
 
-			if (signal.aborted) break;
-
-			// 2. Broadcast thumbnail to dashboard
-			broadcast({
-				type: "frame",
-				base64: clip.thumbnail.toString("base64"),
-				timestamp: clip.timestamp,
-			});
-
-			// 3. Describe with Gemini
 			const startGemini = Date.now();
 			const description = await describeVideo(
-				clip.video,
+				videoBuffer,
 				state.systemPrompt || undefined,
 			);
 			const geminiMs = Date.now() - startGemini;
@@ -85,29 +76,26 @@ async function loop(signal: AbortSignal) {
 				latency: geminiMs,
 			});
 
-			// 4. TTS with Mistral (commented out)
-			// try {
-			// 	const startTts = Date.now();
-			// 	const audioBase64 = await textToSpeech(description);
-			// 	const ttsMs = Date.now() - startTts;
-			// 	log("info", "tts", `Audio generated in ${ttsMs}ms`);
-			// 	broadcast({ type: "audio", data: audioBase64, description, latency: ttsMs });
-			// } catch (ttsErr: unknown) {
-			// 	const ttsMsg = ttsErr instanceof Error ? ttsErr.message : String(ttsErr);
-			// 	log("error", "tts", `TTS error: ${ttsMsg}`);
-			// }
+			const ttsBuffer = await textToSpeech(description);
+			broadcast({
+				type: "audio",
+				buffer: ttsBuffer.toString(),
+			});
 		} catch (err: unknown) {
-			if (signal.aborted) break;
 			const msg = err instanceof Error ? err.message : String(err);
-			log("error", "engine", `Tick error: ${msg}`);
+			log("error", "engine", `Processing error: ${msg}`);
 		}
-	}
+	});
 }
 
 async function triggerGeminiWithGameState(gameState: GameStateData) {
 	try {
 		const frame = await captureScreen();
-		broadcast({ type: "frame", base64: frame.base64, timestamp: frame.timestamp });
+		broadcast({
+			type: "frame",
+			base64: frame.base64,
+			timestamp: frame.timestamp,
+		});
 
 		const startGemini = Date.now();
 		const description = await describeFrame(
@@ -116,7 +104,11 @@ async function triggerGeminiWithGameState(gameState: GameStateData) {
 			gameState,
 		);
 		const geminiMs = Date.now() - startGemini;
-		log("info", "gemini", `Description (game-state triggered, ${geminiMs}ms): ${description}`);
+		log(
+			"info",
+			"gemini",
+			`Description (game-state triggered, ${geminiMs}ms): ${description}`,
+		);
 		broadcast({ type: "description", text: description, latency: geminiMs });
 
 		const audioBase64 = await textToSpeech(description);
@@ -135,12 +127,8 @@ export function start() {
 	log(
 		"info",
 		"engine",
-		`Starting video capture loop (${state.intervalMs}ms clips)`,
+		`Engine started (expecting ${state.intervalMs}ms clips)`,
 	);
-
-	state.abortController = new AbortController();
-	loop(state.abortController.signal);
-
 	broadcast({ type: "status", isRunning: true, intervalMs: state.intervalMs });
 }
 
@@ -148,13 +136,8 @@ export function stop() {
 	if (!state.isRunning) return;
 	state.isRunning = false;
 
-	if (state.abortController) {
-		state.abortController.abort();
-		state.abortController = null;
-	}
-
 	clearHistory();
-	log("info", "engine", "Capture loop stopped");
+	log("info", "engine", "Engine stopped");
 	broadcast({ type: "status", isRunning: false, intervalMs: state.intervalMs });
 }
 
@@ -186,7 +169,6 @@ export function registerClient(peer: Peer) {
 	state.clients.add(peer);
 	log("info", "engine", `Client connected (${state.clients.size} total)`);
 
-	// Send current state to new client
 	peer.send(
 		JSON.stringify({
 			type: "status",

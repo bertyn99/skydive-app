@@ -15,7 +15,7 @@ interface AppState {
 	serverConnected: boolean;
 
 	// Capture
-	currentFrame: string | null;
+	mediaStream: MediaStream | null;
 	isCapturing: boolean;
 	captureInterval: number;
 
@@ -36,16 +36,27 @@ interface AppState {
 	connect: () => void;
 	disconnect: () => void;
 	sendCommand: (command: string, value?: unknown) => void;
+	startCapture: () => Promise<void>;
+	stopCapture: () => void;
 	addLog: (level: LogEntry["level"], source: string, message: string) => void;
 	clearLogs: () => void;
 	setIsPlaying: (playing: boolean) => void;
 	playNextAudio: () => void;
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = "";
+	for (let i = 0; i < bytes.length; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
+	return btoa(binary);
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
 	ws: null,
 	serverConnected: false,
-	currentFrame: null,
+	mediaStream: null,
 	isCapturing: false,
 	captureInterval: 3000,
 	lastDescription: null,
@@ -71,7 +82,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 		socket.onclose = () => {
 			set({ ws: null, serverConnected: false });
 			get().addLog("warn", "client", "Disconnected from server");
-			// Auto-reconnect after 2s
 			setTimeout(() => get().connect(), 2000);
 		};
 
@@ -104,6 +114,73 @@ export const useAppStore = create<AppState>((set, get) => ({
 		if (ws?.readyState === WebSocket.OPEN) {
 			ws.send(JSON.stringify({ command, value }));
 		}
+	},
+
+	startCapture: async () => {
+		try {
+			const stream = await browserStartCapture();
+			set({ mediaStream: stream, isCapturing: true });
+
+			get().sendCommand("start");
+			get().addLog("info", "capture", "Screen capture started");
+
+			// Stop capture if user clicks "Stop sharing" in browser chrome
+			stream.getVideoTracks()[0].addEventListener("ended", () => {
+				get().stopCapture();
+			});
+
+			// Capture loop
+			(async () => {
+				while (get().isCapturing && get().mediaStream === stream) {
+					try {
+						const interval = get().captureInterval;
+						const startTime = Date.now();
+						const buffer = await recordClip(stream, interval);
+						const elapsed = Date.now() - startTime;
+
+						get().addLog(
+							"info",
+							"capture",
+							`Clip recorded in ${elapsed}ms (${(buffer.byteLength / 1024).toFixed(0)}KB)`,
+						);
+
+						const { ws } = get();
+						if (ws?.readyState === WebSocket.OPEN) {
+							ws.send(
+								JSON.stringify({
+									command: "clip",
+									video: arrayBufferToBase64(buffer),
+									durationMs: interval,
+								}),
+							);
+						}
+					} catch (err) {
+						if (!get().isCapturing) break;
+						get().addLog(
+							"error",
+							"capture",
+							`Recording error: ${err instanceof Error ? err.message : String(err)}`,
+						);
+					}
+				}
+			})();
+		} catch (err) {
+			get().addLog(
+				"error",
+				"capture",
+				`Failed to start capture: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+	},
+
+	stopCapture: () => {
+		const { mediaStream } = get();
+		if (mediaStream) {
+			browserStopCapture(mediaStream);
+		}
+		set({ isCapturing: false, mediaStream: null });
+		get().sendCommand("stop");
+		get().addLog("info", "capture", "Screen capture stopped");
 	},
 
 	addLog: (level, source, message) => {
@@ -156,10 +233,6 @@ function handleMessage(
 	get: () => AppState,
 ) {
 	switch (data.type) {
-		case "frame":
-			set({ currentFrame: data.base64 as string });
-			break;
-
 		case "description":
 			set({ lastDescription: data.text as string });
 			break;
@@ -171,7 +244,6 @@ function handleMessage(
 
 		case "status":
 			set({
-				isCapturing: data.isRunning as boolean,
 				captureInterval: data.intervalMs as number,
 			});
 			break;
