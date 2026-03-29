@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google";
-import { type SystemModelMessage, generateObject } from "ai";
+import { Output, type SystemModelMessage, generateText } from "ai";
 import { z } from "zod/v4";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { parseSkyrimState } from "./skyrim-state-parser";
@@ -246,7 +246,8 @@ Missing information is better than repeating it.
 
 const responseSchema = z.object({
 	observation: z
-		.nullable(z.string())
+		.string()
+		.nullable()
 		.describe(
 			"Ce que le joueur doit savoir. Null si rien d'important n'a changé.",
 		),
@@ -258,35 +259,52 @@ const responseSchema = z.object({
 			"Score de pertinence de 0 à 10. 0 = silence. 1-3 = mineur. 4-6 = utile. 7-10 = critique.",
 		),
 	actions: z
-		.optional(
-			z.array(
-				z.object({
-					type: z
-						.string()
-						.describe(
-							"Identifiant court de l'action (ex: 'equip', 'use_potion', 'open_door')",
-						),
-					params: z
-						.record(z.string(), z.unknown())
-						.describe("Paramètres de l'action"),
-				}),
-			),
+		.array(
+			z.object({
+				type: z
+					.string()
+					.describe(
+						"Identifiant court de l'action (ex: 'equip', 'use_potion', 'open_door')",
+					),
+				params: z
+					.record(z.string(), z.unknown())
+					.describe("Paramètres de l'action"),
+			}),
 		)
+		.default([])
 		.describe("Actions suggérées dans le jeu, si pertinent."),
 });
 
 export type GeminiResponse = z.infer<typeof responseSchema>;
 
-interface HistoryEntry {
-	userPrompt: string;
-	assistantAnswer: string;
+const MAX_HISTORY = 10;
+const observations: string[] = [];
+const GEMINI_MODEL = google("gemini-3.1-flash-lite-preview");
+const GEMINI_OUTPUT = Output.object({
+	schema: responseSchema,
+	name: "skyrim_live_assistance",
+	description:
+		"Actionable real-time guidance for Skyrim gameplay, with optional suggested actions.",
+});
+
+function addObservationToHistory(observation: string, relevance: number): void {
+	if (relevance < 4) return;
+
+	const normalized = observation.trim();
+	if (!normalized) return;
+
+	// Keep history concise and avoid repeated context across consecutive calls.
+	const previous = observations.at(-1);
+	if (previous && previous.toLowerCase() === normalized.toLowerCase()) return;
+
+	observations.push(normalized);
+	if (observations.length > MAX_HISTORY) {
+		observations.splice(0, observations.length - MAX_HISTORY);
+	}
 }
 
-const MAX_HISTORY = 5;
-const history: HistoryEntry[] = [];
-
 export function clearHistory() {
-	history.length = 0;
+	observations.length = 0;
 }
 
 export async function describeVideo(
@@ -295,6 +313,9 @@ export async function describeVideo(
 	connector?: SkyrimConnector,
 	userQuestion?: string,
 ): Promise<{ response: GeminiResponse; isQuestion: boolean }> {
+	const question = userQuestion?.trim();
+	const isQuestion = !!question;
+
 	// Fetch Skyrim mod context (if connector available)
 	let modContext: string | null = null;
 	if (connector) {
@@ -324,65 +345,49 @@ export async function describeVideo(
 	}
 
 	// Build user prompt for the current turn
-	const userText = userQuestion
-		? `« ${userQuestion} »\nRéponds à ma question en te basant sur ce que tu vois.`
+	let userText = question
+		? `« ${question} »\nRéponds à ma question en te basant sur ce que tu vois.`
 		: "Donne moi une update.";
 
-	// Build message history as user/assistant pairs + current turn
-	const messages: Array<{
-		role: "user" | "assistant";
-		content:
-			| string
-			| Array<{
-					type: string;
-					text?: string;
-					data?: Buffer;
-					mediaType?: string;
-			  }>;
-	}> = [];
-
-	for (const entry of history) {
-		messages.push({ role: "user", content: entry.userPrompt });
-		messages.push({ role: "assistant", content: entry.assistantAnswer });
+	if (observations.length > 0) {
+		const recap = observations.map((obs) => `- ${obs}`).join("\n");
+		userText = `Tu m'as données ces informations la dernière fois:\n${recap}\n\nSignale uniquement ce qui a changé si c'est pertinent.`;
 	}
 
-	// Current turn with video
-	messages.push({
-		role: "user",
-		content: [
+	if (question) {
+		userText += `\n\n« ${question} »\nRéponds à ma question en te basant sur ce que tu vois.`;
+	}
+
+	console.log("[gemini] Sending video for description", {
+		historyCount: observations.length,
+		hasQuestion: isQuestion,
+		hasModContext: !!modContext,
+		videoBytes: videoBuffer.length,
+	});
+
+	const { output } = await generateText({
+		model: GEMINI_MODEL,
+		output: GEMINI_OUTPUT,
+		system,
+		messages: [
 			{
-				type: "file",
-				data: videoBuffer,
-				mediaType: "video/webm",
-			},
-			{
-				type: "text",
-				text: userText,
+				role: "user",
+				content: [
+					{
+						type: "file",
+						data: videoBuffer,
+						mediaType: "video/webm",
+					},
+					{
+						type: "text",
+						text: userText,
+					},
+				],
 			},
 		],
 	});
 
-	console.log(
-		`[gemini] Sending video. History: ${history.length} turns. Prompt: ${userText.slice(0, 80)}`,
-	);
+	if (output.observation) addObservationToHistory(output.observation, output.relevance);
 
-	const { object } = await generateObject({
-		model: google("gemini-3.1-flash-lite-preview"),
-		schema: responseSchema,
-		system: system,
-		messages: messages as Parameters<typeof generateObject>[0]["messages"],
-	});
-
-	// Store in history only if the answer was relevant
-	if (object.relevance >= 4 && object.observation) {
-		history.push({
-			userPrompt: userText,
-			assistantAnswer: object.observation,
-		});
-		if (history.length > MAX_HISTORY) {
-			history.shift();
-		}
-	}
-
-	return { response: object, isQuestion: !!userQuestion };
+	return { response: output, isQuestion };
 }
