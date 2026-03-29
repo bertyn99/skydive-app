@@ -1,11 +1,12 @@
 import { google } from "@ai-sdk/google";
-import { generateText } from "ai";
-import type { GameStateData } from "./protocol";
+import { generateObject } from "ai";
+import { z } from "zod/v4";
+import type { SkyrimConnector } from "./skyrim-connector";
 
 const DEFAULT_SYSTEM_PROMPT = `
 Tu es **SkyGuide**, un assistant vocal intelligent conçu pour permettre à des joueurs aveugles ou malvoyants de jouer à Skyrim.
 
-Tu vois l'écran du jeu en temps réel et tu interprètes la scène pour guider le joueur uniquement avec des informations utiles à l’action.
+Tu vois l'écran du jeu en temps réel et tu interprètes la scène pour guider le joueur uniquement avec des informations utiles à l'action.
 
 ---
 
@@ -19,7 +20,7 @@ Le joueur est dans **Skyrim**, un jeu 3D avec :
 
 Le joueur **ne voit rien**.
 
-Tu es sa seule source d’information.
+Tu es sa seule source d'information.
 
 ---
 
@@ -40,12 +41,12 @@ Tu fonctionnes en deux modes :
 Quand :
 - le jeu commence
 - le joueur entre dans une nouvelle zone
-- ou aucun contexte n’est disponible
+- ou aucun contexte n'est disponible
 
 Tu dois donner une description plus complète pour poser les bases.
 
 Inclure :
-- type d’environnement
+- type d'environnement
 - structure globale
 - éléments importants
 - dangers potentiels
@@ -126,22 +127,48 @@ Tu ne répètes une information que si :
 
 ## SILENCE
 
-Si rien d’important n’a changé depuis ta dernière observation, réponds **exactement** :
-\`...\`
-
-Ne dis rien d’autre. Pas de phrase, pas de ponctuation supplémentaire. Juste trois points.
+Si rien d'important n'a changé depuis ta dernière observation, le champ "observation" doit être null.
 
 ## QUESTION DU JOUEUR
 
-Si le joueur pose une question, tu dois y répondre en priorité en te basant sur ce que tu vois à l’écran et le contexte du jeu.
+Si le joueur pose une question, tu dois y répondre en priorité en te basant sur ce que tu vois à l'écran et le contexte du jeu.
 Dans ce cas, tu peux dépasser la limite de 2 phrases si nécessaire pour bien répondre.
+
+## ACTIONS
+
+Si tu penses qu'une action dans le jeu aiderait le joueur (ex: équiper une arme, ouvrir l'inventaire, utiliser une potion), propose-la dans le champ "actions".
+Chaque action a un type (identifiant court) et des paramètres.
 
 ## RÈGLE FINALE
 
 ---
-Tu n’es pas un narrateur.
-Tu es un système d’aide à la décision en temps réel.
+Tu n'es pas un narrateur.
+Tu es un système d'aide à la décision en temps réel.
 `;
+
+const responseSchema = z.object({
+	observation: z
+		.nullable(z.string())
+		.describe(
+			"Ce que le joueur doit savoir. Null si rien d'important n'a changé.",
+		),
+	actions: z
+		.optional(
+			z.array(
+				z.object({
+					type: z
+						.string()
+						.describe("Identifiant court de l'action (ex: 'equip', 'use_potion', 'open_door')"),
+					params: z
+						.record(z.string(), z.unknown())
+						.describe("Paramètres de l'action"),
+				}),
+			),
+		)
+		.describe("Actions suggérées dans le jeu, si pertinent."),
+});
+
+export type GeminiResponse = z.infer<typeof responseSchema>;
 
 const MAX_HISTORY = 10;
 const observations: string[] = [];
@@ -153,10 +180,32 @@ export function clearHistory() {
 export async function describeVideo(
 	videoBuffer: Buffer,
 	systemPrompt?: string,
-	gameState?: GameStateData,
+	connector?: SkyrimConnector,
 	userQuestion?: string,
-): Promise<{ text: string; isQuestion: boolean }> {
-	// Build context from recent observations
+): Promise<{ response: GeminiResponse; isQuestion: boolean }> {
+	// Fetch Skyrim mod context (if connector available)
+	let modContext: string | null = null;
+	if (connector) {
+		try {
+			const ctx = await connector.getContext();
+			if (ctx.raw) {
+				modContext = JSON.stringify(ctx.raw);
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[gemini] Failed to fetch mod context: ${msg}`);
+		}
+	}
+
+	// Build system messages
+	const system: string[] = [systemPrompt || DEFAULT_SYSTEM_PROMPT];
+	if (modContext) {
+		system.push(
+			`## DONNÉES DU MOD SKYRIM (contexte temps réel)\n${modContext}`,
+		);
+	}
+
+	// Build user prompt
 	let userText = "Voici un extrait vidéo du jeu. Que se passe-t-il ?";
 
 	if (observations.length > 0) {
@@ -168,9 +217,10 @@ export async function describeVideo(
 		userText += `\n\nLe joueur demande : « ${userQuestion} »\nRéponds à sa question en te basant sur ce que tu vois.`;
 	}
 
-	const { text } = await generateText({
+	const { object } = await generateObject({
 		model: google("gemini-3.1-flash-lite-preview"),
-		system: systemPrompt || DEFAULT_SYSTEM_PROMPT,
+		schema: responseSchema,
+		system: system.join("\n\n"),
 		messages: [
 			{
 				role: "user",
@@ -189,13 +239,13 @@ export async function describeVideo(
 		],
 	});
 
-	// Store observation (skip silence markers)
-	if (text.trim() !== "...") {
-		observations.push(text);
+	// Store observation (skip nulls)
+	if (object.observation) {
+		observations.push(object.observation);
 		if (observations.length > MAX_HISTORY) {
 			observations.shift();
 		}
 	}
 
-	return { text, isQuestion: !!userQuestion };
+	return { response: object, isQuestion: !!userQuestion };
 }

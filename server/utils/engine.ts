@@ -1,8 +1,10 @@
 import type { Peer } from "crossws";
 import { transcribeAudio } from "./elevenlabs-stt";
+import type { GeminiResponse } from "./gemini";
 import { clearHistory, describeVideo } from "./gemini";
 import { textToSpeech } from "./mistral-tts";
 import type { GameStateData, GameStatePayload } from "./protocol";
+import type { SkyrimConnector } from "./skyrim-connector";
 
 interface EngineState {
 	isRunning: boolean;
@@ -20,6 +22,7 @@ interface EngineState {
 	wakeWordPending: boolean;
 	sttProcessing: boolean;
 	lastAnswerTime: number;
+	connector: SkyrimConnector | null;
 }
 
 const state: EngineState = {
@@ -38,6 +41,7 @@ const state: EngineState = {
 	wakeWordPending: false,
 	sttProcessing: false,
 	lastAnswerTime: 0,
+	connector: null,
 };
 
 function broadcast(message: Record<string, unknown>) {
@@ -80,6 +84,11 @@ function isSilent(text: string): boolean {
 	return false;
 }
 
+export function setConnector(connector: SkyrimConnector) {
+	state.connector = connector;
+	log("info", "engine", `Skyrim connector set: ${connector.constructor.name}`);
+}
+
 export function processClip(videoBuffer: Buffer, durationMs: number) {
 	// Keep latest clip for on-demand question processing
 	state.latestClipBuffer = videoBuffer;
@@ -104,29 +113,51 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 			);
 
 			const startGemini = Date.now();
-			const { text: description, isQuestion } = await describeVideo(
+			const { response, isQuestion } = await describeVideo(
 				videoBuffer,
 				state.systemPrompt || undefined,
-				undefined,
+				state.connector || undefined,
 				question || undefined,
 			);
 			const geminiMs = Date.now() - startGemini;
-			log("info", "gemini", `Description (${geminiMs}ms): ${description}`);
+
+			const observation = response.observation;
+			const actions = response.actions;
+
+			log(
+				"info",
+				"gemini",
+				`Response (${geminiMs}ms): observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
+			);
 
 			broadcast({
 				type: "description",
-				text: description,
+				text: observation,
+				actions,
 				latency: geminiMs,
-				silent: !isQuestion && isSilent(description),
+				silent: !isQuestion && !observation,
 			});
 
-			// Skip TTS for silence markers (unless answering a question)
-			if (!isQuestion && isSilent(description)) {
+			// Broadcast actions for future use
+			if (actions && actions.length > 0) {
+				broadcast({ type: "actions", actions });
+				log("info", "engine", `Actions suggested: ${actions.map((a) => a.type).join(", ")}`);
+			}
+
+			// Skip TTS when no observation (unless answering a question)
+			if (!isQuestion && !observation) {
 				log("info", "engine", "Silent — skipping TTS");
 				return;
 			}
 
-			const ttsBuffer = await textToSpeech(description);
+			// For TTS, use observation text (or silence marker for empty answers)
+			const ttsText = observation || "...";
+			if (isSilent(ttsText)) {
+				log("info", "engine", "Silent — skipping TTS");
+				return;
+			}
+
+			const ttsBuffer = await textToSpeech(ttsText);
 			if (isQuestion) {
 				state.lastAnswerTime = Date.now();
 			}
@@ -134,7 +165,7 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 				type: "audio",
 				buffer: ttsBuffer.toString(),
 				priority: isQuestion ? "answer" : "ambient",
-				text: description,
+				text: ttsText,
 			});
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
