@@ -21,7 +21,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 // Volume threshold (0-255 range from getByteFrequencyData)
 const SILENCE_THRESHOLD = 15;
 // How long silence must last before we consider speech done (ms)
-const SILENCE_DURATION = 800;
+const SILENCE_DURATION = 500;
 // How often we check volume levels (ms)
 const CHECK_INTERVAL = 100;
 

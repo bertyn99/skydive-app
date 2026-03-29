@@ -1,10 +1,10 @@
 import type { Peer } from "crossws";
 import { transcribeAudio } from "./elevenlabs-stt";
-import type { GeminiResponse } from "./gemini";
 import { clearHistory, describeVideo } from "./gemini";
 import { textToSpeech } from "./mistral-tts";
 import type { GameStateData, GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
+import { SkyrimFileConnector } from "./skyrim-file-connector";
 
 interface EngineState {
 	isRunning: boolean;
@@ -27,7 +27,7 @@ interface EngineState {
 
 const state: EngineState = {
 	isRunning: false,
-	intervalMs: 7000,
+	intervalMs: 6000,
 	systemPrompt: "",
 	clients: new Set(),
 	abortController: null,
@@ -41,7 +41,7 @@ const state: EngineState = {
 	wakeWordPending: false,
 	sttProcessing: false,
 	lastAnswerTime: 0,
-	connector: null,
+	connector: new SkyrimFileConnector(),
 };
 
 function broadcast(message: Record<string, unknown>) {
@@ -122,42 +122,48 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 			const geminiMs = Date.now() - startGemini;
 
 			const observation = response.observation;
+			const relevance = response.relevance;
 			const actions = response.actions;
 
 			log(
 				"info",
 				"gemini",
-				`Response (${geminiMs}ms): observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
+				`Response (${geminiMs}ms): relevance=${relevance}, observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
 			);
+
+			const isRelevant = isQuestion || relevance >= 4;
 
 			broadcast({
 				type: "description",
 				text: observation,
+				relevance,
 				actions,
 				latency: geminiMs,
-				silent: !isQuestion && !observation,
+				silent: !isRelevant,
 			});
 
 			// Broadcast actions for future use
 			if (actions && actions.length > 0) {
 				broadcast({ type: "actions", actions });
-				log("info", "engine", `Actions suggested: ${actions.map((a) => a.type).join(", ")}`);
+				log(
+					"info",
+					"engine",
+					`Actions suggested: ${actions.map((a) => a.type).join(", ")}`,
+				);
 			}
 
-			// Skip TTS when no observation (unless answering a question)
-			if (!isQuestion && !observation) {
+			// Skip TTS for low-relevance observations (unless answering a question)
+			if (!isRelevant || !observation) {
+				log("info", "engine", `Skipping TTS — relevance ${relevance}/10`);
+				return;
+			}
+
+			if (isSilent(observation)) {
 				log("info", "engine", "Silent — skipping TTS");
 				return;
 			}
 
-			// For TTS, use observation text (or silence marker for empty answers)
-			const ttsText = observation || "...";
-			if (isSilent(ttsText)) {
-				log("info", "engine", "Silent — skipping TTS");
-				return;
-			}
-
-			const ttsBuffer = await textToSpeech(ttsText);
+			const ttsBuffer = await textToSpeech(observation, "elevenlabs");
 			if (isQuestion) {
 				state.lastAnswerTime = Date.now();
 			}
@@ -165,7 +171,7 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 				type: "audio",
 				buffer: ttsBuffer.toString(),
 				priority: isQuestion ? "answer" : "ambient",
-				text: ttsText,
+				text: observation,
 			});
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -197,7 +203,7 @@ async function triggerGeminiWithGameState(gameState: GameStateData) {
 		);
 		broadcast({ type: "description", text: description, latency: geminiMs });
 
-		const audioBase64 = await textToSpeech(description);
+		const audioBase64 = await textToSpeech(description, "elevenlabs");
 		broadcast({ type: "audio", data: audioBase64, description, latency: 0 });
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);

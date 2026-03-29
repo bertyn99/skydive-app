@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type {
 	SkyrimAction,
 	SkyrimConnector,
@@ -5,13 +6,20 @@ import type {
 } from "./skyrim-connector";
 
 // Path to the JSON file dumped by the Skyrim mod
-const _filePath =
-	process.env.SKYRIM_CONTEXT_FILE_PATH ?? "./skyrim-context.json";
+const filePath =
+	process.env.SKYRIM_CONTEXT_FILE_PATH ?? "./src/assets/state.json";
 
 export class SkyrimFileConnector implements SkyrimConnector {
 	async getContext(): Promise<SkyrimContext> {
-		// TODO: read and parse JSON from _filePath
-		return { raw: null };
+		try {
+			const content = await readFile(filePath, "utf-8");
+			const raw = JSON.parse(content) as Record<string, unknown>;
+			return { raw };
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[skyrim-file] Failed to read ${filePath}: ${msg}`);
+			return { raw: null };
+		}
 	}
 
 	async sendAction(_action: SkyrimAction): Promise<{ success: boolean }> {

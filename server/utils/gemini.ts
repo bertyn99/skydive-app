@@ -1,7 +1,8 @@
 import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
+import { type SystemModelMessage, generateObject } from "ai";
 import { z } from "zod/v4";
 import type { SkyrimConnector } from "./skyrim-connector";
+import { parseSkyrimState } from "./skyrim-state-parser";
 
 const DEFAULT_SYSTEM_PROMPT = `
 Tu es **SkyGuide**, un assistant vocal intelligent conçu pour permettre à des joueurs aveugles ou malvoyants de jouer à Skyrim.
@@ -127,7 +128,32 @@ Tu ne répètes une information que si :
 
 ## SILENCE
 
-Si rien d'important n'a changé depuis ta dernière observation, le champ "observation" doit être null.
+Tu dois rester silencieux (observation = null, relevance = 0) dans la majorité des cas.
+Tu ne parles QUE si l'information est **critique pour la survie ou la progression immédiate** du joueur.
+
+Exemples où tu dois rester silencieux :
+- La scène n'a pas changé
+- Le joueur marche dans un couloir sans danger
+- Un PNJ est présent mais ne fait rien de nouveau
+- Le décor est le même qu'avant
+- Rien ne menace le joueur
+
+Exemples où tu dois parler :
+- Un ennemi attaque ou s'approche
+- Un piège ou danger immédiat apparaît
+- Le joueur arrive dans une nouvelle zone
+- Une porte, un coffre ou un objet interactif est à portée
+- Le joueur est en danger (santé basse, encerclé)
+
+## SCORE DE PERTINENCE
+
+Le champ "relevance" est un entier de 0 à 10 :
+- 0 : rien à signaler, silence total
+- 1-3 : info mineure (contexte, ambiance) → ne sera PAS transmise au joueur
+- 4-6 : info utile (navigation, interaction possible)
+- 7-10 : info critique (danger, combat, changement majeur)
+
+En cas de doute, choisis un score BAS. Le silence est toujours préférable au bruit.
 
 ## QUESTION DU JOUEUR
 
@@ -152,13 +178,22 @@ const responseSchema = z.object({
 		.describe(
 			"Ce que le joueur doit savoir. Null si rien d'important n'a changé.",
 		),
+	relevance: z
+		.int()
+		.min(0)
+		.max(10)
+		.describe(
+			"Score de pertinence de 0 à 10. 0 = silence. 1-3 = mineur. 4-6 = utile. 7-10 = critique.",
+		),
 	actions: z
 		.optional(
 			z.array(
 				z.object({
 					type: z
 						.string()
-						.describe("Identifiant court de l'action (ex: 'equip', 'use_potion', 'open_door')"),
+						.describe(
+							"Identifiant court de l'action (ex: 'equip', 'use_potion', 'open_door')",
+						),
 					params: z
 						.record(z.string(), z.unknown())
 						.describe("Paramètres de l'action"),
@@ -189,7 +224,7 @@ export async function describeVideo(
 		try {
 			const ctx = await connector.getContext();
 			if (ctx.raw) {
-				modContext = JSON.stringify(ctx.raw);
+				modContext = parseSkyrimState(ctx.raw);
 			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -198,11 +233,17 @@ export async function describeVideo(
 	}
 
 	// Build system messages
-	const system: string[] = [systemPrompt || DEFAULT_SYSTEM_PROMPT];
+	const system: SystemModelMessage[] = [
+		{
+			role: "system",
+			content: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+		},
+	];
 	if (modContext) {
-		system.push(
-			`## DONNÉES DU MOD SKYRIM (contexte temps réel)\n${modContext}`,
-		);
+		system.push({
+			role: "system",
+			content: `## DONNÉES DU MOD SKYRIM (contexte temps réel)\n${modContext}`,
+		});
 	}
 
 	// Build user prompt
@@ -220,7 +261,7 @@ export async function describeVideo(
 	const { object } = await generateObject({
 		model: google("gemini-3.1-flash-lite-preview"),
 		schema: responseSchema,
-		system: system.join("\n\n"),
+		system: system,
 		messages: [
 			{
 				role: "user",
@@ -228,7 +269,7 @@ export async function describeVideo(
 					{
 						type: "file",
 						data: videoBuffer,
-						mediaType: "video/mp4",
+						mediaType: "video/webm",
 					},
 					{
 						type: "text",

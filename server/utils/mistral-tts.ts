@@ -1,4 +1,6 @@
-export async function textToSpeech(text: string): Promise<string> {
+import { textToSpeechElevenLabs } from "./elevenlabs-tts";
+
+async function textToSpeechMistral(text: string): Promise<string> {
 	const apiKey = process.env.MISTRAL_API_KEY;
 	if (!apiKey) {
 		throw new Error("MISTRAL_API_KEY not set");
@@ -50,4 +52,24 @@ export async function textToSpeech(text: string): Promise<string> {
 	// console.log(`[mistral-tts] Audio saved to: ${debugPath}`);
 
 	return data.audio_data;
+}
+
+export async function textToSpeech(
+	text: string,
+	provider: "mistral" | "elevenlabs",
+): Promise<string> {
+	try {
+		switch (provider) {
+			case "mistral":
+				return await textToSpeechMistral(text);
+			case "elevenlabs":
+				return await textToSpeechElevenLabs(text);
+			default:
+				throw new Error(`Unknown TTS provider: ${provider}`);
+		}
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[tts] Mistral failed, falling back to ElevenLabs: ${msg}`);
+		return "";
+	}
 }

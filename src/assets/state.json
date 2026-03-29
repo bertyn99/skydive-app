@@ -1,0 +1,74 @@
+{
+    "float": {
+        "player.angle_z": 0.59970355033874512,
+        "player.health": 100.0,
+        "player.health_max": 100.0,
+        "player.magicka": 100.0,
+        "player.stamina": 85.03143310546875,
+        "timestamp": 0.94683140516281128
+    },
+    "floatList": {
+        "npcs.distance_m": [
+            25.216424942016602,
+            26.804960250854492,
+            19.337646484375,
+            23.531589508056641,
+            25.232744216918945,
+            25.725975036621094,
+            25.978330612182617
+        ]
+    },
+    "int": {
+        "enemies.count": 0,
+        "npcs.count": 7,
+        "objects.count": 0,
+        "player.in_combat": 0,
+        "player.in_dialogue": 0,
+        "player.is_in_interior": 1,
+        "player.is_running": 1,
+        "player.is_sneaking": 0,
+        "player.is_stuck": 0,
+        "player.is_swimming": 0,
+        "player.is_weapon_drawn": 1,
+        "player.obstacle_front": 0
+    },
+    "intList": {
+        "npcs.id": [
+            108151,
+            108158,
+            856054,
+            108159,
+            108157,
+            856052,
+            856053
+        ]
+    },
+    "string": {
+        "last_event": "None",
+        "player.compass": "Sud",
+        "player.location": "Fort-Dragon",
+        "quest_active": "Tame Dragon controller",
+        "version": "v3.6_fixed",
+        "world.weather": ""
+    },
+    "stringList": {
+        "npcs.clock": [
+            "12H",
+            "2H",
+            "6H",
+            "12H",
+            "12H",
+            "11H",
+            "12H"
+        ],
+        "npcs.name": [
+            "Balgruuf le Grand",
+            "Farengar Feu-Secret",
+            "Garde de Blancherive",
+            "Irileth",
+            "Proventus Avenicci",
+            "Garde de Blancherive",
+            "Garde de Blancherive"
+        ]
+    }
+}

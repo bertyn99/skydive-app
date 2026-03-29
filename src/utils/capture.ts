@@ -1,8 +1,8 @@
 import {
-	Output,
-	Mp4OutputFormat,
 	BufferTarget,
 	MediaStreamVideoTrackSource,
+	Output,
+	WebMOutputFormat,
 } from "mediabunny";
 
 export async function startCapture(): Promise<MediaStream> {
@@ -20,13 +20,13 @@ export async function recordClip(
 ): Promise<ArrayBuffer> {
 	const target = new BufferTarget();
 	const output = new Output({
-		format: new Mp4OutputFormat(),
+		format: new WebMOutputFormat(),
 		target,
 	});
 
 	const videoTrack = stream.getVideoTracks()[0];
 	const source = new MediaStreamVideoTrackSource(videoTrack, {
-		codec: "avc",
+		codec: "vp8",
 		bitrate: 500_000,
 	});
 	source.errorPromise.catch(() => {});

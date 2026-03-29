@@ -170,11 +170,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 				get().stopCapture();
 			});
 
-			// Capture loop
+			// Capture loop — first clip is short (1s) for quick initial description
 			(async () => {
+				let isFirstClip = true;
 				while (get().isCapturing && get().mediaStream === stream) {
 					try {
-						const interval = get().captureInterval;
+						const interval = isFirstClip ? 1000 : get().captureInterval;
+						isFirstClip = false;
 						const startTime = Date.now();
 						const buffer = await recordClip(stream, interval);
 						const elapsed = Date.now() - startTime;
@@ -220,6 +222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			browserStopCapture(mediaStream);
 		}
 		set({ isCapturing: false, mediaStream: null });
+		get().stopCurrentAudio();
 		get().sendCommand("stop");
 		get().stopVoice();
 		get().addLog("info", "capture", "Screen capture stopped");
