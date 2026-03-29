@@ -64,6 +64,7 @@ Now: NPC still standing
 
 Only if at least one is true:
 
+* No previous history
 * new object appears
 * object moves or distance changes significantly
 * danger appears or increases
@@ -79,6 +80,8 @@ If the player is already aware of something,
 DO NOT repeat it.
 
 Even if it is useful.
+
+ALWAYS ANSWER IN FRENCH.
 
 ---
 
@@ -274,11 +277,16 @@ const responseSchema = z.object({
 
 export type GeminiResponse = z.infer<typeof responseSchema>;
 
-const MAX_HISTORY = 10;
-const observations: string[] = [];
+interface HistoryEntry {
+	userPrompt: string;
+	assistantAnswer: string;
+}
+
+const MAX_HISTORY = 5;
+const history: HistoryEntry[] = [];
 
 export function clearHistory() {
-	observations.length = 0;
+	history.length = 0;
 }
 
 export async function describeVideo(
@@ -315,50 +323,64 @@ export async function describeVideo(
 		});
 	}
 
-	// Build user prompt
-	let userText = "Voici le dernier extrait vidéo du jeu.";
+	// Build user prompt for the current turn
+	const userText = userQuestion
+		? `« ${userQuestion} »\nRéponds à ma question en te basant sur ce que tu vois.`
+		: "Donne moi une update.";
 
-	if (observations.length > 0) {
-		const recap = observations.map((obs, i) => `- ${obs}`).join("\n");
-		userText = `Tu m'as données ces informations la dernière fois:\n${recap}\n\nSignale uniquement ce qui a changé si c'est pertinent.`;
+	// Build message history as user/assistant pairs + current turn
+	const messages: Array<{
+		role: "user" | "assistant";
+		content:
+			| string
+			| Array<{
+					type: string;
+					text?: string;
+					data?: Buffer;
+					mediaType?: string;
+			  }>;
+	}> = [];
+
+	for (const entry of history) {
+		messages.push({ role: "user", content: entry.userPrompt });
+		messages.push({ role: "assistant", content: entry.assistantAnswer });
 	}
 
-	if (userQuestion) {
-		userText += `\n\n« ${userQuestion} »\nRéponds à ma question en te basant sur ce que tu vois.`;
-	}
+	// Current turn with video
+	messages.push({
+		role: "user",
+		content: [
+			{
+				type: "file",
+				data: videoBuffer,
+				mediaType: "video/webm",
+			},
+			{
+				type: "text",
+				text: userText,
+			},
+		],
+	});
 
 	console.log(
-		"[gemini] Sending video for description. User question:",
-		userText,
+		`[gemini] Sending video. History: ${history.length} turns. Prompt: ${userText.slice(0, 80)}`,
 	);
 
 	const { object } = await generateObject({
 		model: google("gemini-3.1-flash-lite-preview"),
 		schema: responseSchema,
 		system: system,
-		messages: [
-			{
-				role: "user",
-				content: [
-					{
-						type: "file",
-						data: videoBuffer,
-						mediaType: "video/webm",
-					},
-					{
-						type: "text",
-						text: userText,
-					},
-				],
-			},
-		],
+		messages: messages as Parameters<typeof generateObject>[0]["messages"],
 	});
 
-	// Store observation (skip nulls)
-	if (object.relevance > 4 && object.observation) {
-		observations.push(object.observation);
-		if (observations.length > MAX_HISTORY) {
-			observations.shift();
+	// Store in history only if the answer was relevant
+	if (object.relevance >= 4 && object.observation) {
+		history.push({
+			userPrompt: userText,
+			assistantAnswer: object.observation,
+		});
+		if (history.length > MAX_HISTORY) {
+			history.shift();
 		}
 	}
 
