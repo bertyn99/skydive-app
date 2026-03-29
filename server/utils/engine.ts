@@ -298,6 +298,9 @@ export function processQuestion(text: string) {
 	state.pendingQuestion = text;
 	log("info", "engine", `Question received: ${text}`);
 
+	// Reset the processing chain — drop any queued ambient clips
+	processingChain = Promise.resolve();
+
 	// If we have a recent clip, trigger immediate processing
 	if (state.latestClipBuffer) {
 		const clip = state.latestClipBuffer;

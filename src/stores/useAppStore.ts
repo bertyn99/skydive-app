@@ -65,6 +65,11 @@ interface AppState {
 let audioCtx: AudioContext | null = null;
 let currentAudioSource: AudioBufferSourceNode | null = null;
 let stopVoiceFn: (() => void) | null = null;
+let skipNextClip = false;
+
+function interruptClipLoop() {
+	skipNextClip = true;
+}
 
 function getAudioContext(): AudioContext {
 	if (!audioCtx) {
@@ -177,9 +182,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 					try {
 						const interval = isFirstClip ? 1000 : get().captureInterval;
 						isFirstClip = false;
+
 						const startTime = Date.now();
 						const buffer = await recordClip(stream, interval);
+						if (!get().isCapturing) break;
 						const elapsed = Date.now() - startTime;
+
+						// If voice input interrupted, skip sending this clip
+						if (skipNextClip) {
+							skipNextClip = false;
+							get().addLog("info", "capture", "Clip skipped — voice input reset interval");
+							continue;
+						}
 
 						get().addLog(
 							"info",
@@ -382,6 +396,7 @@ function handleMessage(
 		case "voice_question":
 			set({ lastQuestion: data.text as string });
 			get().stopCurrentAudio();
+			interruptClipLoop();
 			get().addLog("info", "voice", `Question detected: ${data.text}`);
 			break;
 
