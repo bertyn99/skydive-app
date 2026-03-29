@@ -247,16 +247,21 @@ export async function describeVideo(
 	}
 
 	// Build user prompt
-	let userText = "Voici un extrait vidéo du jeu. Que se passe-t-il ?";
+	let userText = "Voici le dernier extrait vidéo du jeu.";
 
 	if (observations.length > 0) {
-		const recap = observations.map((obs, i) => `${i + 1}. ${obs}`).join("\n");
-		userText = `Dernières observations :\n${recap}\n\nVoici un nouvel extrait vidéo. Signale uniquement ce qui a changé.`;
+		const recap = observations.map((obs, i) => `- ${obs}`).join("\n");
+		userText = `Tu m'as données ces informations la dernière fois:\n${recap}\n\nSignale uniquement ce qui a changé si c'est pertinent.`;
 	}
 
 	if (userQuestion) {
-		userText += `\n\nLe joueur demande : « ${userQuestion} »\nRéponds à sa question en te basant sur ce que tu vois.`;
+		userText += `\n\n« ${userQuestion} »\nRéponds à ma question en te basant sur ce que tu vois.`;
 	}
+
+	console.log(
+		"[gemini] Sending video for description. User question:",
+		userText,
+	);
 
 	const { object } = await generateObject({
 		model: google("gemini-3.1-flash-lite-preview"),
@@ -281,7 +286,7 @@ export async function describeVideo(
 	});
 
 	// Store observation (skip nulls)
-	if (object.observation) {
+	if (object.relevance > 4 && object.observation) {
 		observations.push(object.observation);
 		if (observations.length > MAX_HISTORY) {
 			observations.shift();
