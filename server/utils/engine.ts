@@ -65,8 +65,14 @@ function log(
 	console.log(`[${source}] ${message}`);
 }
 
-// Sequential processing of clips via promise chain
-let processingChain = Promise.resolve();
+type PendingClip = {
+	videoBuffer: Buffer;
+	durationMs: number;
+};
+
+// Keep processing strictly sequential, but cap the queue to one "latest" clip.
+let clipWorkerRunning = false;
+let pendingClip: PendingClip | null = null;
 
 const SILENCE_MARKERS = [
 	"...",
@@ -84,6 +90,15 @@ function isSilent(text: string): boolean {
 	return false;
 }
 
+function isCorruptedVideoError(message: string): boolean {
+	const normalized = message.toLowerCase();
+	return (
+		normalized.includes("video is corrupted") ||
+		normalized.includes("wrong video metadata") ||
+		normalized.includes("0 frames found")
+	);
+}
+
 export function setConnector(connector: SkyrimConnector) {
 	state.connector = connector;
 	log("info", "engine", `Skyrim connector set: ${connector.constructor.name}`);
@@ -92,92 +107,118 @@ export function setConnector(connector: SkyrimConnector) {
 export function processClip(videoBuffer: Buffer, durationMs: number) {
 	// Keep latest clip for on-demand question processing
 	state.latestClipBuffer = videoBuffer;
+	if (clipWorkerRunning) {
+		// Overwrite any older queued clip: we only care about the freshest frame.
+		pendingClip = { videoBuffer, durationMs };
+		return;
+	}
 
-	processingChain = processingChain.then(async () => {
-		try {
-			// Grab and clear pending question atomically
-			const question = state.pendingQuestion;
-			state.pendingQuestion = null;
+	clipWorkerRunning = true;
 
-			// Skip ambient clips that arrive too soon after an answer
-			// to avoid redundant descriptions
-			if (!question && Date.now() - state.lastAnswerTime < state.intervalMs) {
-				log("info", "engine", "Skipping ambient clip — answer cooldown active");
-				return;
+	void (async () => {
+		let current: PendingClip | null = { videoBuffer, durationMs };
+		while (current) {
+			state.processing = true;
+			try {
+				// Grab and clear pending question atomically
+				const question = state.pendingQuestion;
+				state.pendingQuestion = null;
+
+				// Skip ambient clips that arrive too soon after an answer
+				// to avoid redundant descriptions
+				if (!question && Date.now() - state.lastAnswerTime < state.intervalMs) {
+					log("info", "engine", "Skipping ambient clip — answer cooldown active");
+				} else {
+					log(
+						"info",
+						"engine",
+						`Processing clip (${(current.videoBuffer.length / 1024).toFixed(0)}KB, ${current.durationMs}ms)${question ? ` [question: ${question}]` : ""}`,
+					);
+
+					const startGemini = Date.now();
+					const { response, isQuestion } = await describeVideo(
+						current.videoBuffer,
+						state.systemPrompt || undefined,
+						state.connector || undefined,
+						question || undefined,
+					);
+					const geminiMs = Date.now() - startGemini;
+
+					const observation = response.observation;
+					const relevance = response.relevance;
+					const actions = response.actions;
+					const finalObservation =
+						isQuestion && (!observation || isSilent(observation))
+							? "Je ne vois pas assez clairement. Reposez la question en restant immobile une seconde."
+							: observation;
+
+					log(
+						"info",
+						"gemini",
+						`Response (${geminiMs}ms): relevance=${relevance}, observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
+					);
+
+					const isRelevant = isQuestion || relevance >= 4;
+
+					broadcast({
+						type: "description",
+						text: finalObservation,
+						relevance,
+						actions,
+						latency: geminiMs,
+						silent: !isRelevant,
+					});
+
+					// Broadcast actions for future use
+					if (actions && actions.length > 0) {
+						broadcast({ type: "actions", actions });
+						log(
+							"info",
+							"engine",
+							`Actions suggested: ${actions.map((a) => a.type).join(", ")}`,
+						);
+					}
+
+					// Skip TTS for low-relevance observations (unless answering a question)
+					if (!isRelevant || !finalObservation) {
+						log("info", "engine", `Skipping TTS — relevance ${relevance}/10`);
+					} else if (isSilent(finalObservation)) {
+						log("info", "engine", "Silent — skipping TTS");
+					} else {
+						const ttsBuffer = await textToSpeech(finalObservation, "elevenlabs");
+						if (isQuestion) {
+							state.lastAnswerTime = Date.now();
+						}
+						broadcast({
+							type: "audio",
+							buffer: ttsBuffer.toString(),
+							priority: isQuestion ? "answer" : "ambient",
+							text: finalObservation,
+						});
+					}
+				}
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				if (isCorruptedVideoError(msg)) {
+					log("warn", "engine", `Ignoring invalid clip: ${msg}`);
+				} else {
+					log("error", "engine", `Processing error: ${msg}`);
+				}
+			} finally {
+				state.processing = false;
 			}
 
-			log(
-				"info",
-				"engine",
-				`Processing clip (${(videoBuffer.length / 1024).toFixed(0)}KB, ${durationMs}ms)${question ? ` [question: ${question}]` : ""}`,
-			);
-
-			const startGemini = Date.now();
-			const { response, isQuestion } = await describeVideo(
-				videoBuffer,
-				state.systemPrompt || undefined,
-				state.connector || undefined,
-				question || undefined,
-			);
-			const geminiMs = Date.now() - startGemini;
-
-			const observation = response.observation;
-			const relevance = response.relevance;
-			const actions = response.actions;
-
-			log(
-				"info",
-				"gemini",
-				`Response (${geminiMs}ms): relevance=${relevance}, observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
-			);
-
-			const isRelevant = isQuestion || relevance >= 4;
-
-			broadcast({
-				type: "description",
-				text: observation,
-				relevance,
-				actions,
-				latency: geminiMs,
-				silent: !isRelevant,
-			});
-
-			// Broadcast actions for future use
-			if (actions && actions.length > 0) {
-				broadcast({ type: "actions", actions });
-				log(
-					"info",
-					"engine",
-					`Actions suggested: ${actions.map((a) => a.type).join(", ")}`,
-				);
-			}
-
-			// Skip TTS for low-relevance observations (unless answering a question)
-			if (!isRelevant || !observation) {
-				log("info", "engine", `Skipping TTS — relevance ${relevance}/10`);
-				return;
-			}
-
-			if (isSilent(observation)) {
-				log("info", "engine", "Silent — skipping TTS");
-				return;
-			}
-
-			const ttsBuffer = await textToSpeech(observation, "elevenlabs");
-			if (isQuestion) {
-				state.lastAnswerTime = Date.now();
-			}
-			broadcast({
-				type: "audio",
-				buffer: ttsBuffer.toString(),
-				priority: isQuestion ? "answer" : "ambient",
-				text: observation,
-			});
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log("error", "engine", `Processing error: ${msg}`);
+			current = pendingClip;
+			pendingClip = null;
 		}
-	});
+
+		clipWorkerRunning = false;
+		if (pendingClip) {
+			const next = pendingClip;
+			pendingClip = null;
+			processClip(next.videoBuffer, next.durationMs);
+		}
+	})();
 }
 
 async function triggerGeminiWithGameState(gameState: GameStateData) {
@@ -298,8 +339,8 @@ export function processQuestion(text: string) {
 	state.pendingQuestion = text;
 	log("info", "engine", `Question received: ${text}`);
 
-	// Reset the processing chain — drop any queued ambient clips
-	processingChain = Promise.resolve();
+	// Drop queued ambient clip and let the newest clip take priority.
+	pendingClip = null;
 
 	// If we have a recent clip, trigger immediate processing
 	if (state.latestClipBuffer) {
@@ -309,6 +350,88 @@ export function processQuestion(text: string) {
 }
 
 const WAKE_WORD = "guide";
+const VOICE_DEBUG_LOGS = process.env.VOICE_DEBUG === "1";
+const MIN_FREEFORM_QUESTION_CHARS = 6;
+const MIN_FREEFORM_QUESTION_WORDS = 2;
+const QUESTION_PREFIXES = [
+	"ou",
+	"où",
+	"que",
+	"qu",
+	"quoi",
+	"qui",
+	"quand",
+	"comment",
+	"pourquoi",
+	"combien",
+	"quel",
+	"quelle",
+	"quels",
+	"quelles",
+	"est-ce",
+	"est ce",
+	"peux-tu",
+	"peux tu",
+	"pouvez-vous",
+	"pouvez vous",
+	"dois-je",
+	"dois je",
+	"faut-il",
+	"faut il",
+	"indique",
+	"dis-moi",
+	"dis moi",
+] as const;
+
+function normalizeForQuestionIntent(text: string): string {
+	return text
+		.toLowerCase()
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "");
+}
+
+function looksLikeFreeformQuestion(text: string): boolean {
+	const trimmed = text.trim();
+	if (trimmed.length < MIN_FREEFORM_QUESTION_CHARS) return false;
+
+	const normalized = normalizeForQuestionIntent(trimmed);
+	const words = normalized.split(/\s+/).filter(Boolean);
+	if (words.length < MIN_FREEFORM_QUESTION_WORDS) return false;
+
+	if (trimmed.includes("?")) return true;
+	return QUESTION_PREFIXES.some(
+		(prefix) => normalized === prefix || normalized.startsWith(`${prefix} `),
+	);
+}
+
+function extractQuestionAfterWakeWord(text: string): string | null {
+	const wakePattern = new RegExp(`\\b${WAKE_WORD}\\b[\\s,.;:!?-]*`, "i");
+	const match = wakePattern.exec(text);
+	if (!match) return null;
+
+	const afterWake = text.slice(match.index + match[0].length).trim();
+	return afterWake.length > 0 ? afterWake : "";
+}
+
+function maybeExtractQuestion(text: string): {
+	question: string | null;
+	waitingForNextChunk: boolean;
+	reason: "wake" | "freeform" | "none";
+} {
+	const afterWake = extractQuestionAfterWakeWord(text);
+	if (afterWake !== null) {
+		if (afterWake === "") {
+			return { question: null, waitingForNextChunk: true, reason: "wake" };
+		}
+		return { question: afterWake, waitingForNextChunk: false, reason: "wake" };
+	}
+
+	if (looksLikeFreeformQuestion(text)) {
+		return { question: text.trim(), waitingForNextChunk: false, reason: "freeform" };
+	}
+
+	return { question: null, waitingForNextChunk: false, reason: "none" };
+}
 
 export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 	// Process STT sequentially — skip if already processing
@@ -322,8 +445,6 @@ export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 			return;
 		}
 
-		const lower = trimmed.toLowerCase();
-
 		if (state.wakeWordPending) {
 			// Previous chunk had just "Guide" — this chunk is the question
 			state.wakeWordPending = false;
@@ -334,28 +455,27 @@ export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 			return;
 		}
 
-		// const wakeIndex = lower.indexOf(WAKE_WORD);
-		// if (wakeIndex === -1) return;
+		const extracted = maybeExtractQuestion(trimmed);
 
-		// Found wake word — extract question after it
-		// const afterWake = trimmed
-		// 	.slice(wakeIndex + WAKE_WORD.length)
-		// 	.replace(/^[,.\s]+/, "")
-		// 	.trim();
-
-		const afterWake = trimmed;
-
-		if (afterWake.length > 0) {
-			// "Guide, qu'est-ce qu'il y a devant moi?" — question in same chunk
-			log("info", "voice", `Question: ${afterWake}`);
-			broadcast({ type: "voice_question", text: afterWake });
-			processQuestion(afterWake);
-		} else {
-			// Just "Guide" alone — wait for next chunk
+		if (extracted.waitingForNextChunk) {
 			state.wakeWordPending = true;
 			broadcast({ type: "voice_status", status: "wake-detected" });
 			log("info", "voice", "Wake word detected, waiting for question...");
+			return;
 		}
+
+		if (!extracted.question) {
+			if (VOICE_DEBUG_LOGS) {
+				log("info", "voice", `Ignored transcript: ${trimmed.slice(0, 120)}`);
+			}
+			return;
+		}
+
+		const voiceSourceLabel =
+			extracted.reason === "freeform" ? "Question (freeform):" : "Question:";
+		log("info", "voice", `${voiceSourceLabel} ${extracted.question}`);
+		broadcast({ type: "voice_question", text: extracted.question });
+		processQuestion(extracted.question);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log("error", "voice", `STT error: ${msg}`);

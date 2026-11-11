@@ -1,21 +1,14 @@
 // Voice recognition via mic capture + server-side ElevenLabs STT
 // Records while user speaks, sends complete utterance on silence detection
 
+import { buildAudioFrame } from "./ws-binary";
+
 export type VoiceStatus = "off" | "listening" | "wake-detected";
 
 export interface VoiceCallbacks {
 	onQuestion: (text: string) => void;
 	onStatusChange: (status: VoiceStatus) => void;
 	isEnabled: () => boolean;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (let i = 0; i < bytes.length; i++) {
-		binary += String.fromCharCode(bytes[i]);
-	}
-	return btoa(binary);
 }
 
 // Volume threshold (0-255 range from getByteFrequencyData)
@@ -75,13 +68,7 @@ export function startVoiceRecognition(
 			if (blob.size < 1024) return;
 
 			const buffer = await blob.arrayBuffer();
-			ws.send(
-				JSON.stringify({
-					command: "audio_chunk",
-					audio: arrayBufferToBase64(buffer),
-					mimeType,
-				}),
-			);
+			ws.send(buildAudioFrame(buffer, mimeType));
 		};
 		// Use timeslice to flush data periodically into chunks array
 		recorder.start(1000);

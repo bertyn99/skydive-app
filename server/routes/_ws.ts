@@ -10,6 +10,35 @@ import {
 	updateConfig,
 } from "../utils/engine";
 
+const CLIP_FRAME_TYPE = 1;
+const AUDIO_FRAME_TYPE = 2;
+const AUDIO_MIME_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
+
+function handleBinaryFrame(data: Uint8Array): boolean {
+	if (data.byteLength === 0) return true;
+	const frameType = data[0];
+
+	if (frameType === CLIP_FRAME_TYPE) {
+		if (data.byteLength <= 5) return true;
+		const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+		const durationMs = view.getUint32(1, true);
+		const payload = data.subarray(5);
+		processClip(Buffer.from(payload), durationMs);
+		return true;
+	}
+
+	if (frameType === AUDIO_FRAME_TYPE) {
+		if (data.byteLength <= 2) return true;
+		const mimeId = data[1] ?? 1;
+		const mimeType = AUDIO_MIME_TYPES[mimeId] ?? "audio/webm";
+		const payload = data.subarray(2);
+		processAudioChunk(Buffer.from(payload), mimeType);
+		return true;
+	}
+
+	return false;
+}
+
 export default defineWebSocketHandler({
 	open(peer) {
 		registerClient(peer);
@@ -17,6 +46,13 @@ export default defineWebSocketHandler({
 
 	message(peer, message) {
 		try {
+			const msgData = (message as { data?: unknown }).data;
+			if (typeof msgData !== "string") {
+				if (handleBinaryFrame(message.uint8Array())) {
+					return;
+				}
+			}
+
 			const data = JSON.parse(message.text());
 
 			switch (data.command) {

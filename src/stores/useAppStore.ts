@@ -5,6 +5,7 @@ import {
 	stopCapture as browserStopCapture,
 	recordClip,
 } from "../utils/capture";
+import { buildClipFrame } from "../utils/ws-binary";
 import {
 	startVoiceRecognition,
 	type VoiceStatus,
@@ -66,6 +67,9 @@ let audioCtx: AudioContext | null = null;
 let currentAudioSource: AudioBufferSourceNode | null = null;
 let stopVoiceFn: (() => void) | null = null;
 let skipNextClip = false;
+const CLIP_WS_BACKPRESSURE_BYTES = 1_500_000;
+const FIRST_CLIP_DURATION_MS = 1500;
+const MIN_CLIP_BYTES = 16 * 1024;
 
 function interruptClipLoop() {
 	skipNextClip = true;
@@ -76,15 +80,6 @@ function getAudioContext(): AudioContext {
 		audioCtx = new AudioContext();
 	}
 	return audioCtx;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (let i = 0; i < bytes.length; i++) {
-		binary += String.fromCharCode(bytes[i]);
-	}
-	return btoa(binary);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -175,18 +170,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 				get().stopCapture();
 			});
 
-			// Capture loop — first clip is short (1s) for quick initial description
+			// Capture loop — first clip is slightly longer to avoid zero-frame warmup clips.
 			(async () => {
 				let isFirstClip = true;
 				while (get().isCapturing && get().mediaStream === stream) {
 					try {
-						const interval = isFirstClip ? 1000 : get().captureInterval;
+						const interval = isFirstClip
+							? FIRST_CLIP_DURATION_MS
+							: get().captureInterval;
 						isFirstClip = false;
 
 						const startTime = Date.now();
 						const buffer = await recordClip(stream, interval);
 						if (!get().isCapturing) break;
 						const elapsed = Date.now() - startTime;
+						if (buffer.byteLength < MIN_CLIP_BYTES) {
+							get().addLog(
+								"warn",
+								"capture",
+								`Skipping tiny clip ${(buffer.byteLength / 1024).toFixed(0)}KB (likely encoder warmup)`,
+							);
+							continue;
+						}
 
 						// If voice input interrupted, skip sending this clip
 						if (skipNextClip) {
@@ -203,13 +208,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 						const { ws } = get();
 						if (ws?.readyState === WebSocket.OPEN) {
-							ws.send(
-								JSON.stringify({
-									command: "clip",
-									video: arrayBufferToBase64(buffer),
-									durationMs: interval,
-								}),
-							);
+							if (ws.bufferedAmount > CLIP_WS_BACKPRESSURE_BYTES) {
+								get().addLog(
+									"warn",
+									"capture",
+									`Dropping clip due to websocket backpressure (${Math.round(ws.bufferedAmount / 1024)}KB buffered)`,
+								);
+								continue;
+							}
+							ws.send(buildClipFrame(buffer, interval));
 						}
 					} catch (err) {
 						if (!get().isCapturing) break;
