@@ -343,6 +343,13 @@ export async function describeVideo(
 			content: `## DONNÉES DU MOD SKYRIM (contexte temps réel)\n${modContext}`,
 		});
 	}
+	if (question) {
+		system.push({
+			role: "system",
+			content:
+				"## MODE QUESTION (STRICT)\nLe joueur vient de poser une question explicite.\nTu DOIS répondre directement.\nDans ce mode, observation ne doit jamais être null.\nSi l'image est ambiguë, dis-le brièvement et demande de rester immobile une seconde.\nUtilise toujours le français.",
+		});
+	}
 
 	// Build user prompt for the current turn
 	let userText = question
@@ -368,7 +375,7 @@ export async function describeVideo(
 	const { output } = await generateText({
 		model: GEMINI_MODEL,
 		output: GEMINI_OUTPUT,
-		system,
+		instructions: system,
 		messages: [
 			{
 				role: "user",
