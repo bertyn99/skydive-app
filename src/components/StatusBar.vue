@@ -14,6 +14,21 @@ const {
 	lastQuestion,
 } = storeToRefs(session);
 
+function toneClass(tone: string | undefined): string {
+	switch (tone) {
+		case "ok":
+			return "bg-success shadow-[0_0_6px_rgba(70,214,140,0.5)]";
+		case "live":
+			return "bg-primary shadow-[0_0_6px_rgba(45,212,191,0.5)]";
+		case "warn":
+			return "bg-warning shadow-[0_0_6px_rgba(232,179,65,0.45)]";
+		case "off":
+			return "bg-error";
+		default:
+			return "bg-accented";
+	}
+}
+
 const voiceTone = computed(() =>
 	voiceStatus.value === "wake-detected"
 		? "ok"
@@ -40,48 +55,73 @@ const audioLabel = computed(() =>
 </script>
 
 <template>
-	<div class="status-strip" role="status" aria-label="Session status">
-		<div class="status-cell">
-			<span class="status-label">server</span>
-			<span class="status-value">
-				<span
-					class="signal-dot"
-					:data-tone="serverConnected ? 'ok' : 'off'"
-				/>
-				<span>{{ serverConnected ? "online" : "offline" }}</span>
-			</span>
-		</div>
-
-		<div class="status-cell">
-			<span class="status-label">capture</span>
-			<span class="status-value">
-				<span class="signal-dot" :data-tone="isCapturing ? 'live' : undefined" />
-				<span>{{ isCapturing ? `running · ${captureInterval}ms` : "idle" }}</span>
-			</span>
-		</div>
-
-		<div class="status-cell">
-			<span class="status-label">audio</span>
-			<span class="status-value">
-				<span class="signal-dot" :data-tone="isPlaying ? 'ok' : undefined" />
-				<span>{{ audioLabel }}</span>
-			</span>
-		</div>
-
-		<div class="status-cell">
-			<span class="status-label">voice</span>
-			<span class="status-value">
-				<span class="signal-dot" :data-tone="voiceTone" />
-				<span>
-					{{ voiceLabel }}
+	<UDashboardToolbar>
+		<div
+			class="flex w-full items-stretch divide-x divide-(--ui-border) overflow-hidden"
+			role="status"
+			aria-label="Session status"
+		>
+			<div class="flex min-w-0 flex-1 items-center gap-2 px-4 py-1.5">
+				<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">
+					Server
+				</span>
+				<span class="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted">
 					<span
-						v-if="lastQuestion && voiceStatus !== 'off'"
-						:title="lastQuestion"
-					>
-						— “{{ lastQuestion.length > 30 ? `${lastQuestion.slice(0, 30)}…` : lastQuestion }}”
+						class="size-[7px] shrink-0 rounded-full"
+						:class="toneClass(serverConnected ? 'ok' : 'off')"
+					/>
+					<span class="truncate">{{ serverConnected ? "online" : "offline" }}</span>
+				</span>
+			</div>
+
+			<div class="flex min-w-0 flex-1 items-center gap-2 px-4 py-1.5">
+				<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">
+					Capture
+				</span>
+				<span class="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted">
+					<span
+						class="size-[7px] shrink-0 rounded-full"
+						:class="toneClass(isCapturing ? 'live' : undefined)"
+					/>
+					<span class="truncate">
+						{{ isCapturing ? `running · ${captureInterval}ms` : "idle" }}
 					</span>
 				</span>
-			</span>
+			</div>
+
+			<div class="flex min-w-0 flex-1 items-center gap-2 px-4 py-1.5">
+				<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">
+					Audio
+				</span>
+				<span class="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted">
+					<span
+						class="size-[7px] shrink-0 rounded-full"
+						:class="toneClass(isPlaying ? 'ok' : undefined)"
+					/>
+					<span class="truncate">{{ audioLabel }}</span>
+				</span>
+			</div>
+
+			<div class="flex min-w-0 flex-1 items-center gap-2 px-4 py-1.5">
+				<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">
+					Voice
+				</span>
+				<span class="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted">
+					<span
+						class="size-[7px] shrink-0 rounded-full"
+						:class="toneClass(voiceTone)"
+					/>
+					<span class="truncate">
+						{{ voiceLabel }}
+						<span
+							v-if="lastQuestion && voiceStatus !== 'off'"
+							:title="lastQuestion"
+						>
+							— “{{ lastQuestion.length > 30 ? `${lastQuestion.slice(0, 30)}…` : lastQuestion }}”
+						</span>
+					</span>
+				</span>
+			</div>
 		</div>
-	</div>
+	</UDashboardToolbar>
 </template>

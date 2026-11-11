@@ -60,9 +60,8 @@ import { storeToRefs } from 'pinia'
 // Types (required for types only)
 import type { GameStateData } from '../../server/utils/protocol'
 
-// Components in SFCs, css last
+// Components in SFCs
 import StatusBar from './components/StatusBar.vue'
-import './App.css'
 ```
 
 ### Component Structure (Vue SFC)
@@ -108,12 +107,19 @@ import './App.css'
 
 ### Nuxt UI Conventions
 
-- Wrap the app in `UApp` (done in `App.vue` template root requirement: toasts/tooltips/overlays)
-- Use semantic colors on components: `color="primary" | "error" | "neutral"`, never raw palette names
-- Theme colors mapped in `vite.config.ts` (`primary: 'teal'`, `neutral: 'slate'`) — keep custom
-  design tokens in `src/index.css` in sync with them
-- Custom mission-control CSS (panels, stage HUD, status strip) lives in `src/App.css` and
-  component-scoped files; Nuxt UI handles standard controls (UButton, USlider, UTextarea, …)
+- Wrap the app in `UApp`; the console shell uses the dashboard primitives:
+  `UDashboardGroup` → `UDashboardPanel` → `UDashboardNavbar` + `UDashboardToolbar`
+- Prefer layout/element components before custom CSS: `UBadge` (chips, status),
+  `UEmpty` (empty states), `UButton`, `USlider`, `UTextarea`, `UFormField` (+ `#hint`
+  slot for inline values)
+- Use **Tailwind utilities with semantic color classes** in templates:
+  `text-default / text-muted / text-dimmed / text-highlighted`, `bg-default /
+  bg-elevated / bg-accented`, `border-default`, `text-primary / bg-primary`,
+  `text-success / text-warning / text-error` — never raw palette names
+- Theme colors mapped in `vite.config.ts` (`primary: 'teal'`, `neutral: 'slate'`);
+  brand fonts mapped in `index.css` `@theme` (`--font-sans`, `--font-mono`)
+- Custom CSS is the last resort, only for effects utilities can't express
+  (stage corner brackets, gauge ticks — see `src/index.css`)
 
 ### Error Handling
 
@@ -133,10 +139,11 @@ try {
 
 ### CSS Conventions
 
-- Design tokens live in `src/index.css` (imported before component CSS)
-- CSS files live alongside components
-- Use semantic class names
-- Follow existing patterns in `App.css`
+- **Tailwind utilities first** in templates with Nuxt UI semantic color classes;
+  no per-component CSS files unless something is truly not expressible
+- `src/index.css` carries: Tailwind + Nuxt UI imports, `@theme` brand fonts, and the
+  few custom rules (stage bezel, gauge ticks)
+- Follow existing patterns in the SFC templates
 
 ---
 
@@ -147,9 +154,9 @@ skydive-app/
 ├── src/
 │   ├── main.ts            # App bootstrap (Pinia, router, Nuxt UI, Vue Query)
 │   ├── App.vue            # Console shell
-│   ├── App.css            # Mission-control layout & components
-│   ├── index.css          # Design tokens (imports Tailwind + Nuxt UI)
-│   ├── components/        # Panel SFCs (*.vue + optional css)
+│   ├── App.vue            # Console shell (dashboard primitives + grid)
+│   ├── index.css          # Tailwind + Nuxt UI imports, @theme fonts, custom effects
+│   ├── components/        # Panel SFCs (Tailwind utilities + Nuxt UI components)
 │   ├── stores/            # Pinia stores (session.ts)
 │   ├── utils/             # Framework-free logic (capture, voice, ws-binary)
 │   └── assets/            # Static assets

@@ -1,100 +1,47 @@
-/* SkyGuide operator console — design tokens + reset.
-   Mission-control instrument theme: cool slate-charcoal surfaces,
-   a single teal signal accent, mono-forward typography. */
+/* SkyGuide operator console — design tokens.
+   Tailwind + Nuxt UI first; this file only carries what utilities
+   cannot express: brand fonts, stage bezel, gauge ticks. */
 
 @import "tailwindcss";
 @import "@nuxt/ui";
 
-:root {
-	/* Surfaces */
-	--bg: #0b0e14;
-	--bg-panel: #10141c;
-	--bg-raised: #171d28;
-	--bg-input: #131822;
-	--bg-hover: #1c2432;
-
-	/* Lines */
-	--border: #1f2733;
-	--border-strong: #2e3a48;
-
-	/* Ink */
-	--text: #93a1b5;
-	--text-dim: #5d6b80;
-	--text-h: #e8eef6;
-
-	/* Signal — one accent, three semantics */
-	--accent: #2fd6c3;
-	--accent-strong: #6ff0de;
-	--accent-dim: rgb(47 214 195 / 0.1);
-	--success: #46d68c;
-	--success-dim: rgb(70 214 140 / 0.12);
-	--warning: #e8b341;
-	--warning-dim: rgb(232 179 65 / 0.12);
-	--danger: #f16a5e;
-	--danger-dim: rgb(241 106 94 / 0.12);
-
-	/* Type */
+@theme {
 	--font-sans: "Geist Variable", system-ui, "Segoe UI", sans-serif;
 	--font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", monospace;
-
-	/* Metrics */
-	--radius-s: 4px;
-	--radius-m: 8px;
-	--radius-l: 12px;
-	--z-hud: 10;
 }
 
-*,
-*::before,
-*::after {
-	box-sizing: border-box;
+/* Stage bezel — instrument corner brackets */
+.stage-frame::before,
+.stage-frame::after {
+	content: "";
+	position: absolute;
+	width: 18px;
+	height: 18px;
+	z-index: 10;
+	pointer-events: none;
 }
 
-html {
-	color-scheme: dark;
+.stage-frame::before {
+	top: 8px;
+	left: 8px;
+	border-top: 1px solid var(--ui-border-accented);
+	border-left: 1px solid var(--ui-border-accented);
 }
 
-body {
-	margin: 0;
-	background: var(--bg);
-	color: var(--text);
-	font-family: var(--font-sans);
-	font-size: 14px;
-	line-height: 1.5;
-	-webkit-font-smoothing: antialiased;
+.stage-frame::after {
+	bottom: 8px;
+	right: 8px;
+	border-bottom: 1px solid var(--ui-border-accented);
+	border-right: 1px solid var(--ui-border-accented);
 }
 
-#root {
-	min-height: 100dvh;
-}
-
-:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-	border-radius: var(--radius-s);
-}
-
-::selection {
-	background: var(--accent-dim);
-	color: var(--text-h);
-}
-
-/* Scrollbars — thin instrument rails */
-* {
-	scrollbar-width: thin;
-	scrollbar-color: var(--border-strong) transparent;
-}
-
-*::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
-}
-
-*::-webkit-scrollbar-thumb {
-	background: var(--border-strong);
-	border-radius: 4px;
-}
-
-*::-webkit-scrollbar-track {
-	background: transparent;
+/* Gauge ticks every 25% */
+.gauge-ticks {
+	background-image: repeating-linear-gradient(
+		90deg,
+		transparent 0,
+		transparent calc(25% - 1px),
+		var(--ui-border) calc(25% - 1px),
+		var(--ui-border) 25%
+	);
 }

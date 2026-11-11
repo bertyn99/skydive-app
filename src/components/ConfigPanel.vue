@@ -24,60 +24,71 @@ function handleIntervalChange(value: number | undefined) {
 </script>
 
 <template>
-	<section class="panel rail-panel" aria-label="Session controls">
-		<div class="panel-head">
-			<h2 class="panel-title">Session</h2>
-			<span class="panel-meta">{{ serverConnected ? "ready" : "no link" }}</span>
+	<section class="flex min-h-0 min-w-0 flex-col overflow-y-auto bg-default" aria-label="Session controls">
+		<div class="flex shrink-0 items-center justify-between border-b border-default px-4 py-2.5">
+			<h2 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
+				Session
+			</h2>
+			<UBadge
+				:color="serverConnected ? 'success' : 'error'"
+				variant="subtle"
+				size="sm"
+			>
+				{{ serverConnected ? "ready" : "no link" }}
+			</UBadge>
 		</div>
-		<div class="panel-body">
-			<div class="field-group">
-				<UButton
-					block
-					:color="isCapturing ? 'error' : 'primary'"
-					variant="subtle"
-					:disabled="!serverConnected"
-					:label="isCapturing ? 'Stop capture' : 'Start capture'"
-					@click="toggleCapture"
-				/>
-			</div>
+		<div class="flex flex-1 flex-col gap-5 p-4">
+			<UButton
+				block
+				:color="isCapturing ? 'error' : 'primary'"
+				variant="subtle"
+				:disabled="!serverConnected"
+				:label="isCapturing ? 'Stop capture' : 'Start capture'"
+				@click="toggleCapture"
+			/>
 
-			<div class="field-group">
-				<label class="field-label" for="capture-interval">
-					Clip interval
-					<span class="value">{{ captureInterval }}ms</span>
-				</label>
+			<UFormField
+				label="Clip interval"
+				class="flex flex-col gap-2"
+				:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+			>
+				<template #hint>
+					<span class="font-mono text-[10px] tracking-[0.05em] text-primary">
+						{{ captureInterval }}ms
+					</span>
+				</template>
 				<USlider
-					id="capture-interval"
-					:model-value="captureInterval"
+					v-model="captureInterval"
 					:min="1000"
 					:max="10000"
 					:step="500"
 					:disabled="!serverConnected"
 					@update:model-value="handleIntervalChange"
 				/>
-			</div>
+			</UFormField>
 
-			<div class="field-group">
-				<label class="field-label" for="system-prompt">
-					System prompt override
-				</label>
+			<UFormField
+				label="System prompt override"
+				class="flex flex-col gap-2"
+				:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+			>
 				<UTextarea
-					id="system-prompt"
 					v-model="promptDraft"
 					:rows="5"
 					variant="soft"
 					placeholder="Leave empty for default prompt…"
 					:disabled="!serverConnected"
-					class="w-full"
+					class="w-full font-mono text-xs"
 				/>
 				<UButton
 					color="neutral"
 					variant="outline"
+					size="sm"
 					label="Save prompt"
 					:disabled="!serverConnected"
 					@click="session.sendCommand('setPrompt', promptDraft)"
 				/>
-			</div>
+			</UFormField>
 		</div>
 	</section>
 </template>

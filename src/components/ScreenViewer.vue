@@ -16,26 +16,47 @@ watchEffect(() => {
 </script>
 
 <template>
-	<section class="panel stage-panel" aria-label="Video stage">
-		<div class="panel-head">
-			<h2 class="panel-title">Stage · Source</h2>
-			<span class="panel-meta">live session</span>
+	<section class="flex min-h-0 min-w-0 flex-col bg-default" aria-label="Video stage">
+		<div class="flex shrink-0 items-center justify-between border-b border-default px-4 py-2.5">
+			<h2 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
+				Stage · Source
+			</h2>
+			<UBadge color="neutral" variant="subtle" size="sm">
+				Live session
+			</UBadge>
 		</div>
-		<div class="stage-body">
-			<div class="stage-frame">
-				<video v-if="mediaStream" ref="videoRef" autoplay muted playsInline />
-				<div v-else class="stage-empty">
-					<span class="stage-empty-title">No source</span>
-					<span class="stage-empty-hint">
-						{{ isCapturing ? "Starting capture…" : "Start capture to feed the assistant from the screen." }}
-					</span>
-				</div>
-				<div class="hud" aria-hidden="true">
-					<span class="hud-chip">
-						<span v-if="isCapturing" class="rec-dot" aria-hidden="true" />
+		<div class="flex flex-1 p-4">
+			<div
+				class="stage-frame relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-default bg-[#05070b]"
+			>
+				<video v-if="mediaStream" ref="videoRef" autoplay muted playsInline class="size-full object-contain" />
+				<UEmpty
+					v-else
+					:icon="isCapturing ? 'i-lucide-loader-circle' : 'i-lucide-video-off'"
+					:title="isCapturing ? 'Starting capture…' : 'No source'"
+					:description="isCapturing ? undefined : 'Start capture to feed the assistant from the screen.'"
+					class="text-muted"
+				/>
+				<div class="pointer-events-none absolute inset-x-3 top-2.5 z-20 flex items-center justify-between">
+					<UBadge
+						color="neutral"
+						variant="solid"
+						class="border border-(--ui-border-accented) bg-black/70 font-mono text-[10px] uppercase tracking-[0.1em] text-muted backdrop-blur-sm"
+					>
+						<span
+							v-if="isCapturing"
+							class="mr-1.5 size-1.5 animate-pulse rounded-full bg-error"
+							aria-hidden="true"
+						/>
 						{{ isCapturing ? "REC" : "STANDBY" }}
-					</span>
-					<span class="hud-chip">CLIP {{ captureInterval }}MS</span>
+					</UBadge>
+					<UBadge
+						color="neutral"
+						variant="solid"
+						class="border border-(--ui-border-accented) bg-black/70 font-mono text-[10px] uppercase tracking-[0.1em] text-muted backdrop-blur-sm"
+					>
+						CLIP {{ captureInterval }}MS
+					</UBadge>
 				</div>
 			</div>
 		</div>
