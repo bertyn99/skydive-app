@@ -39,3 +39,23 @@ _Avoid_: test case, scenario, fixture alone
 **Eval run**:
 Executing a set of Situations through the real pipeline and scoring the results (deterministic checks + human verdict) to detect regressions across prompt or model changes.
 _Avoid_: benchmark, CI test
+
+**Reflex**:
+Deterministic rules on mod context that fire with no AI call (health crash, combat start, enemy in melee range). Fastest tier; cannot be talked out of by a model.
+_Avoid_: hard rules, triggers
+
+**Gate**:
+The per-clip decision call that answers typed questions (should speak, is new, relevance, category) with calibrated confidence, using a decision model. Decides speak vs silence vs escalate.
+_Avoid_: filter, router
+
+**Composer**:
+The step that writes the French Observation once the Gate has decided to speak, or answers a player question. The only tier that generates text.
+_Avoid_: generator, writer, LLM call
+
+**Engine**:
+A swappable implementation for one slot of the pipeline (gate, composer, TTS, STT), each deployable cloud or local.
+_Avoid_: provider, backend, model (a model powers an Engine)
+
+**Escalation**:
+The confidence-threshold policy that promotes a decision from Gate to Composer (or to cloud from local) when calibrated confidence is below threshold.
+_Avoid_: fallback, retry

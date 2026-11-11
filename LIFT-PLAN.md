@@ -37,6 +37,32 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
       (results saved to `situations/results/*.json`).
 - [ ] Silence discipline fixture type: same clip fed twice, expect SILENCE on the second pass.
 
+## Stage 4 — Engine seams + provenance
+
+- [ ] TTS engine seam: elevenlabs | mistral | piper (local, fr_FR, ~100ms).
+- [ ] STT engine seam: elevenlabs | whisper-local (faster-whisper/whisper.cpp server, fr).
+- [ ] Provenance chips on every observation in telemetry (`GATE · clef-flash · 45ms · 0.92`).
+
+## Stage 5 — Decision-model Gate (System 1)
+
+- [ ] Gate module: `experimental_decide()` per clip — shouldSpeak (boolean), isNew (boolean),
+      relevance (score: silence/minor/useful/critical), category (choice: danger/interaction/
+      navigation/change/question). State = mod context JSON + observation history + clip frames.
+- [ ] Escalation policy: calibrated confidence thresholds decide speak-now / compose / escalate
+      to cloud; configurable.
+- [ ] Reflex rules on mod context (0ms callouts bypass the Gate for true emergencies).
+- [ ] Eval runner gains an engines matrix: same Situations × {gemini-gate, clef-flash-gate,
+      rules} → accuracy + calibration report. The Gate ships only when evals say it beats or
+      matches the current Gemini path.
+
+## Stage 6 — Local Composer + full-local mode (System 2)
+
+- [ ] Local VLM composer via `@ai-sdk/openai-compatible` (Ollama/LM Studio, e.g. Qwen2.5-VL):
+      structured facts → short French observation; questions may stay cloud.
+- [ ] Engine picker UI (gate/composer/tts/stt × cloud/local) + offline profile.
+- [ ] Local decision model as Labs option (Clef-flash 9B open weights need their custom
+      schema head — bleeding edge; hosted Workers AI Clef-flash is the pragmatic default).
+
 ## Notes
 
 - React Compiler is on: no useMemo/useCallback/React.memo.
