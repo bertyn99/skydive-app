@@ -9,56 +9,83 @@ export function StatusBar() {
 	const voiceStatus = useAppStore((s) => s.voiceStatus);
 	const lastQuestion = useAppStore((s) => s.lastQuestion);
 
-	const voiceDotClass =
-		voiceStatus === "wake-detected"
-			? "connected"
-			: voiceStatus === "listening"
-				? "idle"
-				: "disconnected";
-
 	const voiceLabel =
 		voiceStatus === "wake-detected"
-			? "Wake detected"
+			? "wake"
 			: voiceStatus === "listening"
-				? "Listening"
-				: "Off";
+				? "listening"
+				: "off";
 
 	return (
-		<div className="status-bar">
-			<div className="status-item">
-				<span
-					className={`status-dot ${serverConnected ? "connected" : "disconnected"}`}
-				/>
-				Server
+		<div className="status-strip" role="status" aria-label="Session status">
+			<div className="status-cell">
+				<span className="status-label">server</span>
+				<span className="status-value">
+					<span
+						className="signal-dot"
+						data-tone={serverConnected ? "ok" : "off"}
+					/>
+					<span>{serverConnected ? "online" : "offline"}</span>
+				</span>
 			</div>
-			<div className="status-item">
-				<span
-					className={`status-dot ${isCapturing ? "connected" : "disconnected"}`}
-				/>
-				Capture ({captureInterval}ms)
-			</div>
-			<div className="status-item">
-				<span className={`status-dot ${isPlaying ? "connected" : "idle"}`} />
-				Audio{" "}
-				{isPlaying
-					? "Playing"
-					: audioQueue.length > 0
-						? `(${audioQueue.length} queued)`
-						: "Idle"}
-			</div>
-			<div className="status-item">
-				<span className={`status-dot ${voiceDotClass}`} />
-				Voice: {voiceLabel}
-				{lastQuestion && voiceStatus !== "off" && (
-					<span className="voice-question" title={lastQuestion}>
-						{" "}
-						— "
-						{lastQuestion.length > 30
-							? `${lastQuestion.slice(0, 30)}…`
-							: lastQuestion}
-						"
+
+			<div className="status-cell">
+				<span className="status-label">capture</span>
+				<span className="status-value">
+					<span
+						className="signal-dot"
+						data-tone={isCapturing ? "live" : undefined}
+					/>
+					<span>
+						{isCapturing ? `running · ${captureInterval}ms` : "idle"}
 					</span>
-				)}
+				</span>
+			</div>
+
+			<div className="status-cell">
+				<span className="status-label">audio</span>
+				<span className="status-value">
+					<span
+						className="signal-dot"
+						data-tone={isPlaying ? "ok" : undefined}
+					/>
+					<span>
+						{isPlaying
+							? "playing"
+							: audioQueue.length > 0
+								? `${audioQueue.length} queued`
+								: "idle"}
+					</span>
+				</span>
+			</div>
+
+			<div className="status-cell">
+				<span className="status-label">voice</span>
+				<span className="status-value">
+					<span
+						className="signal-dot"
+						data-tone={
+							voiceStatus === "wake-detected"
+								? "ok"
+								: voiceStatus === "listening"
+									? "warn"
+									: undefined
+						}
+					/>
+					<span>
+						{voiceLabel}
+						{lastQuestion && voiceStatus !== "off" && (
+							<span title={lastQuestion}>
+								{" "}
+								— “
+								{lastQuestion.length > 30
+									? `${lastQuestion.slice(0, 30)}…`
+									: lastQuestion}
+								”
+							</span>
+						)}
+					</span>
+				</span>
 			</div>
 		</div>
 	);

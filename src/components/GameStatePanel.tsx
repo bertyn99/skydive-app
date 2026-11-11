@@ -17,116 +17,150 @@ export function GameStatePanel() {
 		};
 	}, []);
 
-	if (!gameState) {
-		return (
-			<div className="game-state-panel disconnected">
-				<h3>Game State</h3>
-				<p className="empty-state">Waiting for game data...</p>
-			</div>
-		);
-	}
-
-	const { player, combatState, enemies } = gameState;
-	if (player === null || combatState === null || enemies === null) {
-		return (
-			<div className="game-state-panel disconnected">
-				<h3>Game State</h3>
-				<p className="empty-state">Incomplete game data received</p>
-			</div>
-		);
-	}
-	const healthPercent =
-		player.maxHealth > 0
-			? Math.max(0, Math.min((player.health / player.maxHealth) * 100, 100))
-			: 0;
-	const magickaPercent = Math.max(
-		0,
-		Math.min((player.magicka / 200) * 100, 100),
-	);
-	const staminaPercent = Math.max(
-		0,
-		Math.min((player.stamina / 200) * 100, 100),
-	);
-	const isConnected =
-		gameStateReceivedAt !== null && now - gameStateReceivedAt < 2000;
+	const inCombat = gameState?.combatState === 1;
+	const incomplete =
+		gameState !== null &&
+		(gameState.player === null ||
+			gameState.combatState === null ||
+			gameState.enemies === null);
 
 	return (
-		<div className="game-state-panel">
-			<div className="game-state-header">
-				<h3>Game State</h3>
+		<section
+			className="game-state-panel"
+			aria-label="Mod context"
+			data-active={gameState !== null}
+		>
+			<div className="panel-head">
+				<h2 className="panel-title">Mod context</h2>
 				<span
-					className={`combat-badge ${combatState === 1 ? "in-combat" : "peaceful"}`}
+					className={`combat-badge ${inCombat ? "in-combat" : "peaceful"}`}
 				>
-					{combatState === 1 ? "⚔️ In Combat" : "🕊️ Peaceful"}
+					{inCombat ? "In combat" : "Clear"}
 				</span>
 			</div>
 
-			<div className="stat-row">
-				<label htmlFor="health-bar">Health</label>
-				<div className="bar-track" id="health-bar" aria-label="Health">
-					<div
-						className="bar-fill health"
-						style={{ width: `${healthPercent}%` }}
-					>
-						{player.health.toFixed(0)} / {player.maxHealth.toFixed(0)}
-					</div>
+			{!gameState || incomplete ? (
+				<div className="panel-body">
+					<p className="empty-state">
+						{incomplete
+							? "Incomplete game data received"
+							: "Waiting for the SKSE plugin — no mod context in a sim session"}
+					</p>
 				</div>
-			</div>
-
-			<div className="stat-row">
-				<label htmlFor="magicka-bar">Magicka</label>
-				<div className="bar-track" id="magicka-bar" aria-label="Magicka">
-					<div
-						className="bar-fill magicka"
-						style={{ width: `${magickaPercent}%` }}
-					>
-						{player.magicka.toFixed(0)}
-					</div>
-				</div>
-			</div>
-
-			<div className="stat-row">
-				<label htmlFor="stamina-bar">Stamina</label>
-				<div className="bar-track" id="stamina-bar" aria-label="Stamina">
-					<div
-						className="bar-fill stamina"
-						style={{ width: `${staminaPercent}%` }}
-					>
-						{player.stamina.toFixed(0)}
-					</div>
-				</div>
-			</div>
-
-			<div className="enemies-section">
-				<h4>Enemies ({enemies.length})</h4>
-				{enemies.length === 0 ? (
-					<p className="empty-state">No nearby enemies</p>
-				) : (
-					enemies.map((enemy) => (
-						<div
-							key={`${enemy.formId}-${enemy.name}-${enemy.distance}`}
-							className="enemy-row"
-						>
-							<span className="enemy-name">{enemy.name}</span>
-							<span className="enemy-distance">
-								{enemy.distance.toFixed(1)}m
+			) : (
+				<div className="panel-body">
+					<div className="stat-row">
+						<label className="field-label" htmlFor="health-bar">
+							Health
+							<span className="value">
+								{gameState.player.health.toFixed(0)} /{" "}
+								{gameState.player.maxHealth.toFixed(0)}
 							</span>
+						</label>
+						<div
+							className="bar-track"
+							id="health-bar"
+							aria-label="Health"
+						>
+							<div
+								className="bar-fill health"
+								style={{
+									width: `${healthPercent(gameState.player.health, gameState.player.maxHealth)}%`,
+								}}
+							/>
 						</div>
-					))
-				)}
-			</div>
+					</div>
 
-			<div className="connection-info">
-				<span
-					className={`status-dot ${isConnected ? "connected" : "disconnected"}`}
-				/>
-				<span className="connection-text">
-					{isConnected ? "Live" : "Stale"} · Last update:{" "}
-					{gameStateReceivedAt
-						? new Date(gameStateReceivedAt).toLocaleTimeString()
-						: "N/A"}
-				</span>
-			</div>
-		</div>
+					<div className="stat-row">
+						<label className="field-label" htmlFor="magicka-bar">
+							Magicka
+							<span className="value">
+								{gameState.player.magicka.toFixed(0)}
+							</span>
+						</label>
+						<div
+							className="bar-track"
+							id="magicka-bar"
+							aria-label="Magicka"
+						>
+							<div
+								className="bar-fill magicka"
+								style={{ width: `${manaPercent(gameState.player.magicka)}%` }}
+							/>
+						</div>
+					</div>
+
+					<div className="stat-row">
+						<label className="field-label" htmlFor="stamina-bar">
+							Stamina
+							<span className="value">
+								{gameState.player.stamina.toFixed(0)}
+							</span>
+						</label>
+						<div
+							className="bar-track"
+							id="stamina-bar"
+							aria-label="Stamina"
+						>
+							<div
+								className="bar-fill stamina"
+								style={{ width: `${manaPercent(gameState.player.stamina)}%` }}
+							/>
+						</div>
+					</div>
+
+					<div className="enemies-section">
+						<h4 className="field-label">
+							Enemies · {gameState.enemies?.length ?? 0}
+						</h4>
+						{!gameState.enemies || gameState.enemies.length === 0 ? (
+							<p className="empty-state">No nearby enemies</p>
+						) : (
+							gameState.enemies.map((enemy) => (
+								<div
+									key={`${enemy.formId}-${enemy.name}-${enemy.distance}`}
+									className="enemy-row"
+								>
+									<span className="enemy-name">{enemy.name}</span>
+									<span className="enemy-distance">
+										{enemy.distance.toFixed(1)}m
+									</span>
+								</div>
+							))
+						)}
+					</div>
+
+					<div className="connection-info">
+						<span
+							className="signal-dot"
+							data-tone={isLive(gameStateReceivedAt, now) ? "ok" : "off"}
+						/>
+						<span className="connection-text">
+							{isLive(gameStateReceivedAt, now) ? "Live" : "Stale"}
+							{gameStateReceivedAt
+								? ` · ${new Date(gameStateReceivedAt).toLocaleTimeString()}`
+								: ""}
+						</span>
+					</div>
+				</div>
+			)}
+		</section>
 	);
+}
+
+function healthPercent(health: number, maxHealth: number): number {
+	if (maxHealth <= 0) return 0;
+	return clamp((health / maxHealth) * 100);
+}
+
+function manaPercent(value: number): number {
+	return clamp((value / 200) * 100);
+}
+
+function clamp(value: number): number {
+	return Math.max(0, Math.min(value, 100));
+}
+
+function isLive(receivedAt: number | null, now: number): boolean {
+	return receivedAt !== null && now - receivedAt < 2000;
 }

@@ -1,14 +1,97 @@
-/* Reset — dark dashboard theme only */
+/* SkyGuide operator console — design tokens + reset.
+   Mission-control instrument theme: cool slate-charcoal surfaces,
+   a single teal signal accent, mono-forward typography. */
+
+:root {
+	/* Surfaces */
+	--bg: #0b0e14;
+	--bg-panel: #10141c;
+	--bg-raised: #171d28;
+	--bg-input: #131822;
+	--bg-hover: #1c2432;
+
+	/* Lines */
+	--border: #1f2733;
+	--border-strong: #2e3a48;
+
+	/* Ink */
+	--text: #93a1b5;
+	--text-dim: #5d6b80;
+	--text-h: #e8eef6;
+
+	/* Signal — one accent, three semantics */
+	--accent: #2fd6c3;
+	--accent-strong: #6ff0de;
+	--accent-dim: rgb(47 214 195 / 0.1);
+	--success: #46d68c;
+	--success-dim: rgb(70 214 140 / 0.12);
+	--warning: #e8b341;
+	--warning-dim: rgb(232 179 65 / 0.12);
+	--danger: #f16a5e;
+	--danger-dim: rgb(241 106 94 / 0.12);
+
+	/* Type */
+	--font-sans: "Geist Variable", system-ui, "Segoe UI", sans-serif;
+	--font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", monospace;
+
+	/* Metrics */
+	--radius-s: 4px;
+	--radius-m: 8px;
+	--radius-l: 12px;
+	--z-hud: 10;
+}
+
 *,
 *::before,
 *::after {
 	box-sizing: border-box;
 }
 
+html {
+	color-scheme: dark;
+}
+
 body {
 	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
 }
 
 #root {
-	min-height: 100vh;
+	min-height: 100dvh;
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-s);
+}
+
+::selection {
+	background: var(--accent-dim);
+	color: var(--text-h);
+}
+
+/* Scrollbars — thin instrument rails */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: var(--border-strong);
+	border-radius: 4px;
+}
+
+*::-webkit-scrollbar-track {
+	background: transparent;
 }

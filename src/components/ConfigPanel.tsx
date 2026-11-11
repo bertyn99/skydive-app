@@ -30,56 +30,63 @@ export function ConfigPanel() {
 	};
 
 	return (
-		<div className="panel config-panel">
-			<h2>Configuration</h2>
-
-			<div className="config-row">
-				<label>Server</label>
-				<span
-					className={`status-dot ${serverConnected ? "connected" : "disconnected"}`}
-				/>
-				<span>{serverConnected ? "Connected" : "Disconnected"}</span>
+		<section className="panel rail-panel" aria-label="Session controls">
+			<div className="panel-head">
+				<h2 className="panel-title">Session</h2>
+				<span className="panel-meta">
+					{serverConnected ? "ready" : "no link"}
+				</span>
 			</div>
+			<div className="panel-body">
+				<div className="field-group">
+					<button
+						className={`btn ${isCapturing ? "btn-danger" : "btn-primary"}`}
+						onClick={toggleCapture}
+						disabled={!serverConnected}
+					>
+						{isCapturing ? "Stop capture" : "Start capture"}
+					</button>
+				</div>
 
-			<div className="config-row">
-				<button
-					className={`btn ${isCapturing ? "btn-danger" : "btn-primary"}`}
-					onClick={toggleCapture}
-					disabled={!serverConnected}
-				>
-					{isCapturing ? "Stop Capture" : "Start Capture"}
-				</button>
-			</div>
+				<div className="field-group">
+					<label className="field-label" htmlFor="capture-interval">
+						Clip interval
+						<span className="value">{captureInterval}ms</span>
+					</label>
+					<input
+						id="capture-interval"
+						className="range"
+						type="range"
+						min={1000}
+						max={10000}
+						step={500}
+						value={captureInterval}
+						onChange={handleIntervalChange}
+						disabled={!serverConnected}
+					/>
+				</div>
 
-			<div className="config-row">
-				<label>Capture Interval: {captureInterval}ms</label>
-				<input
-					type="range"
-					min={1000}
-					max={10000}
-					step={500}
-					value={captureInterval}
-					onChange={handleIntervalChange}
-					disabled={!serverConnected}
-				/>
+				<div className="field-group">
+					<label className="field-label" htmlFor="system-prompt">
+						System prompt override
+					</label>
+					<textarea
+						id="system-prompt"
+						className="textarea"
+						value={promptDraft}
+						onChange={(e) => setPromptDraft(e.target.value)}
+						placeholder="Leave empty for default prompt…"
+						rows={5}
+					/>
+					<button
+						className="btn btn-secondary"
+						onClick={handlePromptSave}
+						disabled={!serverConnected}
+					>
+						Save prompt
+					</button>
+				</div>
 			</div>
-
-			<div className="config-row">
-				<label>System Prompt Override</label>
-				<textarea
-					value={promptDraft}
-					onChange={(e) => setPromptDraft(e.target.value)}
-					placeholder="Leave empty for default prompt..."
-					rows={3}
-				/>
-				<button
-					className="btn btn-secondary"
-					onClick={handlePromptSave}
-					disabled={!serverConnected}
-				>
-					Save Prompt
-				</button>
-			</div>
-		</div>
+		</section>
 	);
 }

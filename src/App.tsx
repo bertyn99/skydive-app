@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ConfigPanel } from "./components/ConfigPanel";
-import { DebugLogs } from "./components/DebugLogs";
+import { TelemetryPanel } from "./components/TelemetryPanel";
 import { GameStatePanel } from "./components/GameStatePanel";
 import { ScreenViewer } from "./components/ScreenViewer";
 import { StatusBar } from "./components/StatusBar";
@@ -9,24 +9,37 @@ import "./App.css";
 
 function App() {
 	const connect = useAppStore((s) => s.connect);
+	const serverConnected = useAppStore((s) => s.serverConnected);
 
 	useEffect(() => {
 		connect();
 	}, [connect]);
 
 	return (
-		<div className="dashboard">
-			<header className="dashboard-header">
-				<h1>Sky Guide</h1>
-				<span className="subtitle">Skyrim Accessibility Assistant</span>
+		<div className="console">
+			<header className="command-bar">
+				<div className="brand">
+					<span className="brand-name">SkyGuide</span>
+					<span className="brand-sub">Operator Console</span>
+				</div>
+				<div className="command-slot">
+					<span
+						className="signal-dot"
+						data-tone={serverConnected ? "live" : "off"}
+						aria-hidden="true"
+					/>
+					<span className="panel-meta">
+						{serverConnected ? "LINK ONLINE" : "LINK OFFLINE"}
+					</span>
+				</div>
 			</header>
 			<StatusBar />
-			<div className="dashboard-grid">
+			<main className="console-grid">
 				<ScreenViewer />
 				<ConfigPanel />
-				<DebugLogs />
+				<TelemetryPanel />
 				<GameStatePanel />
-			</div>
+			</main>
 		</div>
 	);
 }
