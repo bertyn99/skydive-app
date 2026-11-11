@@ -335,6 +335,13 @@ export function getState() {
 	};
 }
 
+export function getConfig() {
+	return {
+		intervalMs: state.intervalMs,
+		systemPrompt: state.systemPrompt,
+	};
+}
+
 export function processQuestion(text: string) {
 	state.pendingQuestion = text;
 	log("info", "engine", `Question received: ${text}`);

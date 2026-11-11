@@ -124,9 +124,9 @@ export const useSessionStore = defineStore("session", () => {
 			bytes[i] = raw.charCodeAt(i);
 		}
 
-		ctx.decodeAudioData(
-			bytes.buffer,
-			(audioBuffer) => {
+		ctx
+			.decodeAudioData(bytes.buffer)
+			.then((audioBuffer) => {
 				const source = ctx.createBufferSource();
 				source.buffer = audioBuffer;
 				source.connect(ctx.destination);
@@ -138,13 +138,12 @@ export const useSessionStore = defineStore("session", () => {
 				};
 				currentAudioSource = source;
 				source.start();
-			},
-			() => {
+			})
+			.catch(() => {
 				isPlaying.value = false;
 				addLog("error", "audio", "Failed to decode audio clip");
 				playNextAudio();
-			},
-		);
+			});
 	}
 
 	function clearLogs(): void {

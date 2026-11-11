@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, shallowRef, watch } from "vue";
+import { nextTick, watch } from "vue";
+import { useTemplateRef } from "vue";
 import { storeToRefs } from "pinia";
 import { useSessionStore } from "../stores/session";
 
@@ -7,15 +8,20 @@ const session = useSessionStore();
 const { logs, lastDescription, isPlaying, nowPlayingText, audioQueue } =
 	storeToRefs(session);
 
-const logStreamRef = shallowRef<HTMLElement | null>(null);
+const logStream = useTemplateRef<HTMLElement>("logStream");
 
-// Keep the stream pinned to the latest entries, like a console tail.
+// Pin the stream to the latest entries like a console tail, but only while
+// the operator is already reading the bottom — never yank them up.
 watch(
 	logs,
 	async () => {
+		const el = logStream.value;
+		if (!el) return;
+		const distanceFromBottom =
+			el.scrollHeight - el.scrollTop - el.clientHeight;
+		if (distanceFromBottom > 40) return;
 		await nextTick();
-		const el = logStreamRef.value;
-		if (el) el.scrollTop = el.scrollHeight;
+		el.scrollTop = el.scrollHeight;
 	},
 	{ flush: "post" },
 );
@@ -76,10 +82,7 @@ watch(
 				</span>
 			</div>
 
-			<div
-				ref="logStreamRef"
-				class="mt-auto min-h-0 flex-1 overflow-y-auto border-t border-default pt-2 font-mono text-[11px] leading-[1.7]"
-			>
+			<div ref="logStream" class="mt-auto min-h-0 flex-1 overflow-y-auto border-t border-default pt-2 font-mono text-[11px] leading-[1.7]">
 				<div
 					v-for="log in logs"
 					:key="log.id"
