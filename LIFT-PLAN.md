@@ -63,6 +63,19 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
 - [ ] Local decision model as Labs option (Clef-flash 9B open weights need their custom
       schema head — bleeding edge; hosted Workers AI Clef-flash is the pragmatic default).
 
+## Stage 7 — Player runtime (Electron shell) — triggered by first blind playtest
+
+See ADR-0001. One app, two surfaces: web dashboard = operator/dev; Electron shell =
+blind player (hidden UI, tray, autostart, global push-to-talk, direct audio out,
+desktopCapturer auto-source by window title). Built with `vite-plugin-electron` on the
+existing vite config; Nitro server runs as sidecar on port 3000 (SKSE plugin unchanged).
+
+- [ ] Electron main: sidecar lifecycle (start/health-check/restart), tray + autostart
+- [ ] Hidden renderer running the shared session core (store/voice/ws logic, DOM-free)
+- [ ] desktopCapturer source matching /skyrim/i — replaces getDisplayMedia picker
+- [ ] Global push-to-talk hotkey (hex pattern) + direct audio output
+- [ ] electron-builder NSIS installer (Windows-only target)
+
 ## Notes
 
 - React Compiler is on: no useMemo/useCallback/React.memo.
