@@ -241,3 +241,19 @@ function Button({ label, onClick, disabled = false }: ButtonProps) {
 - **Browser**: Modern browsers (ES2023)
 - **Timezone**: Europe/Paris
 - **Locale**: en-US
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in the Linear project **Skyguide** (team `YGG`, shared with the skyguide-skse repo), managed with the `linear` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role triage vocabulary, applied as Linear labels on team `YGG`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the repo root + `docs/adr/`. See `docs/agents/domain.md`.
