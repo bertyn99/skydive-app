@@ -17,6 +17,8 @@ export interface LogEntry {
 	timestamp: number;
 }
 
+export type SourceKind = "screen" | "video-file";
+
 interface AudioQueueItem {
 	buffer: string;
 	priority: "answer" | "ambient";
@@ -31,6 +33,9 @@ let skipNextClip = false;
 const CLIP_WS_BACKPRESSURE_BYTES = 1_500_000;
 const FIRST_CLIP_DURATION_MS = 1500;
 const MIN_CLIP_BYTES = 16 * 1024;
+const PAUSED_POLL_MS = 200;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function getAudioContext(): AudioContext {
 	if (!audioCtx) {
@@ -43,6 +48,11 @@ export const useSessionStore = defineStore("session", () => {
 	// Connection
 	const ws = shallowRef<WebSocket | null>(null);
 	const serverConnected = shallowRef(false);
+
+	// Source (glossary: Live session = screen, Simulation session = video file)
+	const source = shallowRef<SourceKind>("screen");
+	const videoFileStream = shallowRef<MediaStream | null>(null);
+	const videoPlaying = shallowRef(false);
 
 	// Capture
 	const mediaStream = shallowRef<MediaStream | null>(null);
@@ -191,7 +201,94 @@ export const useSessionStore = defineStore("session", () => {
 		stopCurrentAudio();
 		sendCommand("stop");
 		stopVoice();
-		addLog("info", "capture", "Screen capture stopped");
+		addLog("info", "capture", "Capture stopped");
+	}
+
+	/**
+	 * Records clips from `stream` and ships them over the WS pipeline until
+	 * the capture stops or the stream is replaced. Shared by both sources:
+	 * screen capture and video-file `captureStream()`.
+	 */
+	function runClipLoop(stream: MediaStream): void {
+		void (async () => {
+			// First clip is slightly longer to avoid zero-frame warmup clips.
+			let isFirstClip = true;
+			while (isCapturing.value && mediaStream.value === stream) {
+				try {
+					// Sim source: a paused video has nothing new to say.
+					if (source.value === "video-file" && !videoPlaying.value) {
+						await sleep(PAUSED_POLL_MS);
+						continue;
+					}
+
+					const interval = isFirstClip
+						? FIRST_CLIP_DURATION_MS
+						: captureInterval.value;
+					isFirstClip = false;
+
+					const startTime = Date.now();
+					const buffer = await recordClip(stream, interval);
+					if (!isCapturing.value) break;
+					const elapsed = Date.now() - startTime;
+					if (buffer.byteLength < MIN_CLIP_BYTES) {
+						addLog(
+							"warn",
+							"capture",
+							`Skipping tiny clip ${(buffer.byteLength / 1024).toFixed(0)}KB (likely encoder warmup)`,
+						);
+						continue;
+					}
+
+					// If voice input interrupted, skip sending this clip
+					if (skipNextClip) {
+						skipNextClip = false;
+						addLog(
+							"info",
+							"capture",
+							"Clip skipped — voice input reset interval",
+						);
+						continue;
+					}
+
+					addLog(
+						"info",
+						"capture",
+						`Clip recorded in ${elapsed}ms (${(buffer.byteLength / 1024).toFixed(0)}KB)`,
+					);
+
+					if (ws.value?.readyState === WebSocket.OPEN) {
+						if (
+							ws.value.bufferedAmount > CLIP_WS_BACKPRESSURE_BYTES
+						) {
+							addLog(
+								"warn",
+								"capture",
+								`Dropping clip due to websocket backpressure (${Math.round(ws.value.bufferedAmount / 1024)}KB buffered)`,
+							);
+							continue;
+						}
+						ws.value.send(buildClipFrame(buffer, interval));
+					}
+				} catch (err) {
+					if (!isCapturing.value) break;
+					addLog(
+						"error",
+						"capture",
+						`Recording error: ${err instanceof Error ? err.message : String(err)}`,
+					);
+				}
+			}
+		})();
+	}
+
+	function beginSession(stream: MediaStream): void {
+		mediaStream.value = stream;
+		isCapturing.value = true;
+		sendCommand("start");
+		addLog("info", "capture", `Capture started (${source.value})`);
+		// Auto-start voice recognition
+		startVoice();
+		runClipLoop(stream);
 	}
 
 	function startCapture(): void {
@@ -204,81 +301,12 @@ export const useSessionStore = defineStore("session", () => {
 				}
 
 				const stream = await browserStartCapture();
-				mediaStream.value = stream;
-				isCapturing.value = true;
-
-				sendCommand("start");
-				addLog("info", "capture", "Screen capture started");
-
-				// Auto-start voice recognition
-				startVoice();
+				beginSession(stream);
 
 				// Stop capture if user clicks "Stop sharing" in browser chrome
 				stream.getVideoTracks()[0].addEventListener("ended", () => {
 					stopCapture();
 				});
-
-				// Capture loop — first clip is slightly longer to avoid zero-frame warmup clips.
-				let isFirstClip = true;
-				while (isCapturing.value && mediaStream.value === stream) {
-					try {
-						const interval = isFirstClip
-							? FIRST_CLIP_DURATION_MS
-							: captureInterval.value;
-						isFirstClip = false;
-
-						const startTime = Date.now();
-						const buffer = await recordClip(stream, interval);
-						if (!isCapturing.value) break;
-						const elapsed = Date.now() - startTime;
-						if (buffer.byteLength < MIN_CLIP_BYTES) {
-							addLog(
-								"warn",
-								"capture",
-								`Skipping tiny clip ${(buffer.byteLength / 1024).toFixed(0)}KB (likely encoder warmup)`,
-							);
-							continue;
-						}
-
-						// If voice input interrupted, skip sending this clip
-						if (skipNextClip) {
-							skipNextClip = false;
-							addLog(
-								"info",
-								"capture",
-								"Clip skipped — voice input reset interval",
-							);
-							continue;
-						}
-
-						addLog(
-							"info",
-							"capture",
-							`Clip recorded in ${elapsed}ms (${(buffer.byteLength / 1024).toFixed(0)}KB)`,
-						);
-
-						if (ws.value?.readyState === WebSocket.OPEN) {
-							if (
-								ws.value.bufferedAmount > CLIP_WS_BACKPRESSURE_BYTES
-							) {
-								addLog(
-									"warn",
-									"capture",
-									`Dropping clip due to websocket backpressure (${Math.round(ws.value.bufferedAmount / 1024)}KB buffered)`,
-								);
-								continue;
-							}
-							ws.value.send(buildClipFrame(buffer, interval));
-						}
-					} catch (err) {
-						if (!isCapturing.value) break;
-						addLog(
-							"error",
-							"capture",
-							`Recording error: ${err instanceof Error ? err.message : String(err)}`,
-						);
-					}
-				}
 			} catch (err) {
 				addLog(
 					"error",
@@ -287,6 +315,60 @@ export const useSessionStore = defineStore("session", () => {
 				);
 			}
 		})();
+	}
+
+	function startVideoFileCapture(): void {
+		void (async () => {
+			try {
+				// Unlock AudioContext while we're still in the user gesture
+				const ctx = getAudioContext();
+				if (ctx.state === "suspended") {
+					await ctx.resume();
+				}
+
+				const stream = videoFileStream.value;
+				if (!stream) {
+					addLog(
+						"warn",
+						"capture",
+						"Cannot start sim capture: no video file loaded",
+					);
+					return;
+				}
+
+				beginSession(stream);
+
+				if (!videoPlaying.value) {
+					addLog(
+						"info",
+						"capture",
+						"Video paused — press play to stream clips",
+					);
+				}
+			} catch (err) {
+				addLog(
+					"error",
+					"capture",
+					`Failed to start sim capture: ${err instanceof Error ? err.message : String(err)}`,
+				);
+			}
+		})();
+	}
+
+	function setSource(kind: SourceKind): void {
+		if (source.value === kind) return;
+		if (isCapturing.value) {
+			stopCapture();
+		}
+		source.value = kind;
+		addLog("info", "session", `Source set to ${kind}`);
+	}
+
+	function setVideoFileStream(stream: MediaStream | null): void {
+		if (isCapturing.value && source.value === "video-file") {
+			stopCapture();
+		}
+		videoFileStream.value = stream;
 	}
 
 	function connect(): void {
@@ -393,6 +475,9 @@ export const useSessionStore = defineStore("session", () => {
 		// State
 		ws,
 		serverConnected,
+		source,
+		videoFileStream,
+		videoPlaying,
 		mediaStream,
 		isCapturing,
 		captureInterval,
@@ -410,7 +495,10 @@ export const useSessionStore = defineStore("session", () => {
 		disconnect,
 		sendCommand,
 		startCapture,
+		startVideoFileCapture,
 		stopCapture,
+		setSource,
+		setVideoFileStream,
 		startVoice,
 		stopVoice,
 		stopCurrentAudio,

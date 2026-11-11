@@ -6,6 +6,7 @@ import { useSessionStore } from "../stores/session";
 const session = useSessionStore();
 const {
 	serverConnected,
+	source,
 	isCapturing,
 	isPlaying,
 	captureInterval,
@@ -84,7 +85,9 @@ const audioLabel = computed(() =>
 						:class="toneClass(isCapturing ? 'live' : undefined)"
 					/>
 					<span class="truncate">
-						{{ isCapturing ? `running · ${captureInterval}ms` : "idle" }}
+						{{ isCapturing
+							? `running · ${source === "video-file" ? "sim" : "live"} · ${captureInterval}ms`
+							: "idle" }}
 					</span>
 				</span>
 			</div>

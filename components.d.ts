@@ -26,8 +26,12 @@ declare module 'vue' {
     UDashboardPanel: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']
     UDashboardToolbar: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardToolbar.vue')['default']
     UEmpty: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Empty.vue')['default']
+    UFieldGroup: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FieldGroup.vue')['default']
+    UFileUpload: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FileUpload.vue')['default']
     UFormField: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FormField.vue')['default']
+    USeparator: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Separator.vue')['default']
     USlider: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
+    USwitch: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Switch.vue')['default']
     UTextarea: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Textarea.vue')['default']
   }
 }

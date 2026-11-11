@@ -11,7 +11,8 @@ interface EngineConfig {
 }
 
 const session = useSessionStore();
-const { isCapturing, captureInterval, serverConnected } = storeToRefs(session);
+const { isCapturing, captureInterval, serverConnected, source } =
+	storeToRefs(session);
 const queryClient = useQueryClient();
 const toast = useToast();
 
@@ -47,6 +48,8 @@ const draftUnsaved = computed(
 function toggleCapture() {
 	if (isCapturing.value) {
 		session.stopCapture();
+	} else if (source.value === "video-file") {
+		session.startVideoFileCapture();
 	} else {
 		session.startCapture();
 	}
@@ -109,7 +112,11 @@ function save() {
 				:color="isCapturing ? 'error' : 'primary'"
 				variant="subtle"
 				:disabled="!serverConnected"
-				:label="isCapturing ? 'Stop capture' : 'Start capture'"
+				:label="isCapturing
+					? 'Stop capture'
+					: source === 'video-file'
+						? 'Start sim capture'
+						: 'Start capture'"
 				@click="toggleCapture"
 			/>
 

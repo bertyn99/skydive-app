@@ -9,7 +9,7 @@ import TelemetryPanel from "../components/TelemetryPanel.vue";
 import GameStatePanel from "../components/GameStatePanel.vue";
 
 const session = useSessionStore();
-const { serverConnected } = storeToRefs(session);
+const { serverConnected, source } = storeToRefs(session);
 
 onMounted(() => {
 	session.connect();
@@ -19,19 +19,36 @@ onMounted(() => {
 <template>
 	<UDashboardGroup>
 		<UDashboardPanel id="console">
-			<template #header>
-				<UDashboardNavbar>
-					<template #title>
-						<div class="flex items-baseline gap-2.5">
-							<span class="text-base font-semibold tracking-tight text-highlighted">
-								SkyGuide
-							</span>
-							<span class="font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed">
-								Operator Console
-							</span>
-						</div>
-					</template>
-					<template #right>
+			<UDashboardNavbar>
+				<template #title>
+					<div class="flex items-baseline gap-2.5">
+						<span class="text-base font-semibold tracking-tight text-highlighted">
+							SkyGuide
+						</span>
+						<span class="font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed">
+							Operator Console
+						</span>
+					</div>
+				</template>
+				<template #right>
+					<div class="flex items-center gap-3">
+						<UFieldGroup size="xs">
+							<UButton
+								label="Live"
+								:color="source === 'screen' ? 'primary' : 'neutral'"
+								:variant="source === 'screen' ? 'subtle' : 'soft'"
+								:disabled="source === 'screen'"
+								@click="session.setSource('screen')"
+							/>
+							<UButton
+								label="Sim"
+								:color="source === 'video-file' ? 'primary' : 'neutral'"
+								:variant="source === 'video-file' ? 'subtle' : 'soft'"
+								:disabled="source === 'video-file'"
+								@click="session.setSource('video-file')"
+							/>
+						</UFieldGroup>
+						<USeparator orientation="vertical" class="h-4" />
 						<div class="flex items-center gap-2">
 							<span
 								class="size-[7px] rounded-full"
@@ -44,10 +61,10 @@ onMounted(() => {
 								{{ serverConnected ? "LINK ONLINE" : "LINK OFFLINE" }}
 							</span>
 						</div>
-					</template>
-				</UDashboardNavbar>
-				<StatusBar />
-			</template>
+					</div>
+				</template>
+			</UDashboardNavbar>
+			<StatusBar />
 
 			<main
 				class="grid min-h-0 flex-1 gap-px bg-(--ui-border-accented)

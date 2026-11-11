@@ -18,13 +18,14 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
 - [ ] States: hover/active/focus-visible everywhere, disabled states, empty states.
 - [ ] index.html: real title + meta.
 
-## Stage 2 — Simulation session (Sources)
+## Stage 2 — Simulation session (Sources) — ✅ shipped
 
-- [ ] `Source` abstraction in store: `screen` (existing getDisplayMedia) | `video-file`
+- [x] `Source` abstraction in store: `screen` (existing getDisplayMedia) | `video-file`
       (file picker → object URL → `video.captureStream()` into the existing clip pipeline).
-- [ ] Mode switcher LIVE/SIM in the command bar (per GLOSSARY: Live session / Simulation session).
-- [ ] Video-file controls in the stage: play/pause, seek, loop, time readout.
-- [ ] Engine/server: verify clip path works without mod context (should already — connector is optional).
+- [x] Mode switcher LIVE/SIM in the command bar (per GLOSSARY: Live session / Simulation session).
+- [x] Video-file controls in the stage: play/pause, seek, loop, time readout.
+- [x] Engine/server: clip path verified mod-context-optional (runtime test with a real
+      lets-play file remains a manual step — YGG-231 note).
 
 ## Stage 3 — Situations + Eval runner
 
