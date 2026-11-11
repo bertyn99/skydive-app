@@ -1,13 +1,17 @@
+import vue from '@vitejs/plugin-vue'
+import { nitro } from "nitro/vite"
+import ui from '@nuxt/ui/vite'
 import { defineConfig } from 'vite'
-import react, { reactCompilerPreset } from '@vitejs/plugin-react'
-import babel from '@rolldown/plugin-babel'
-import { nitro } from "nitro/vite";
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    react(),
-    babel({ presets: [reactCompilerPreset()] }),
-    nitro()
+    vue(),
+    ui({
+      ui: {
+        colors: { primary: 'teal', neutral: 'slate' },
+      },
+    }),
+    nitro(),
   ],
 })

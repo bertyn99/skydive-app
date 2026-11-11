@@ -5,39 +5,37 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vue-tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.117",
+    "@tanstack/vue-query": "^5.107.1",
     "ai": "^7.0.169",
     "h3": "^2.0.8",
     "mediabunny": "^1.65.2",
     "nitro": "3.0.261103-rc",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.45",
+    "vue-router": "^5.5.0",
     "zod": "^4.6.7",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.13",
     "@eslint/js": "^10.0.1",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
-    "@rolldown/plugin-babel": "^0.3.1",
-    "@types/babel__core": "^7.20.5",
+    "@nuxt/ui": "^4.12.0",
     "@types/node": "^24.19.2",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.3.0",
-    "babel-plugin-react-compiler": "^1.0.0",
+    "@vitejs/plugin-vue": "^6.0.10",
     "eslint": "^10.14.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.7",
+    "eslint-plugin-vue": "^10.12.1",
     "globals": "^17.14.0",
+    "tailwindcss": "^4.3.5",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
-    "vite": "^8.3.7"
+    "vite": "^8.3.7",
+    "vue-tsc": "^3.3.14"
   }
 }

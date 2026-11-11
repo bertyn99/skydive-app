@@ -4,10 +4,12 @@ This document provides essential context for AI coding agents working in this re
 
 ## Project Overview
 
-- **Stack**: React 19 + TypeScript + Vite 8
-- **Backend**: Nitro server (file-based API routes in `server/`)
+- **Stack**: Vue 3 (Composition API, `<script setup lang="ts">`) + TypeScript + Vite 8
+- **UI**: Nuxt UI v4 (Vue plugin) + Tailwind CSS v4 + custom mission-control design tokens
+- **State**: Pinia (`src/stores/session.ts` — the session store)
+- **Server state**: TanStack Vue Query (wired; consumed by Stage 3+ for REST data)
+- **Backend**: Nitro server (file-based API routes in `server/`), WebSocket at `/_ws`
 - **Package Manager**: pnpm
-- **React Compiler**: Enabled via `babel-plugin-react-compiler`
 
 ---
 
@@ -18,10 +20,10 @@ This document provides essential context for AI coding agents working in this re
 pnpm dev              # Start Vite dev server with HMR
 
 # Build
-pnpm build            # TypeScript check (tsc -b) + Vite build
+pnpm build            # vue-tsc -b (typecheck incl. .vue SFCs) + Vite build
 
 # Linting
-pnpm lint             # Run ESLint on all files
+pnpm lint             # Run ESLint (typescript-eslint + eslint-plugin-vue) on all files
 
 # Preview
 pnpm preview          # Preview production build locally
@@ -46,83 +48,72 @@ No test framework is currently configured. When adding tests:
   - `verbatimModuleSyntax` (explicit type imports required)
 - **Target**: ES2023
 - **Module**: ESM with bundler resolution
+- Typechecked with `vue-tsc` (`.ts` and `.vue`)
 
 ### Import Conventions
 
-```tsx
-// Named imports first
-import { useState, useEffect } from 'react'
+```ts
+// Vue APIs first
+import { computed, shallowRef } from 'vue'
+import { storeToRefs } from 'pinia'
 
-// Default imports
-import App from './App'
+// Types (required for types only)
+import type { GameStateData } from '../../server/utils/protocol'
 
-// Type imports (required for types only)
-import type { ReactNode } from 'react'
-
-// CSS imports
+// Components in SFCs, css last
+import StatusBar from './components/StatusBar.vue'
 import './App.css'
-
-// Asset imports
-import logo from './assets/logo.svg'
 ```
 
-### Component Structure
+### Component Structure (Vue SFC)
 
-```tsx
-// Function components with explicit return types preferred
-function ComponentName(): JSX.Element {
-  // Hooks at the top
-  const [state, setState] = useState(initialValue)
-  
-  // Event handlers
-  const handleClick = () => {
-    setState(prev => prev + 1)
-  }
-  
-  // JSX return
-  return (
-    <div onClick={handleClick}>
-      {state}
-    </div>
-  )
-}
+```vue
+<script setup lang="ts">
+// imports (vue, pinia, types, components, css)
+// props/emits via defineProps/defineEmits if needed
+// store wiring: const store = useSessionStore(); const { x } = storeToRefs(store)
+// local state, computeds, handlers
+</script>
 
-export default ComponentName
+<template>
+	<!-- semantic HTML, kebab-case events, store actions on handlers -->
+</template>
 ```
+
+- Single-file components with `<script setup lang="ts">` always first
+- Local components are imported explicitly; Nuxt UI `U*` components are globally registered
 
 ### Naming Conventions
 
 | Type | Convention | Example |
 |------|------------|---------|
-| Components | PascalCase | `UserProfile.tsx` |
-| Hooks | camelCase with `use` prefix | `useUserData.ts` |
+| Components | PascalCase `.vue` | `GameStatePanel.vue` |
+| Stores | camelCase `.ts`, `useXxxStore` | `stores/session.ts` → `useSessionStore` |
+| Composables | camelCase with `use` prefix | `useUserData.ts` |
 | Utilities | camelCase | `formatDate.ts` |
 | API routes | kebab-case | `server/api/user-profile.ts` |
-| CSS files | Match component | `UserProfile.css` |
+| CSS files | Match component | `GameStatePanel.css` |
 
-### React Best Practices
+### Vue Best Practices
 
-1. **React Compiler is enabled** - Do NOT use:
-   - `useMemo()` - compiler handles memoization
-   - `useCallback()` - compiler handles memoization
-   - `React.memo()` - compiler handles memoization
+1. **Composition API only** — no Options API
+2. **Reactivity discipline**:
+   - `shallowRef()` for primitive values and opaque handles (WebSocket, MediaStream)
+   - `ref()`/`reactive()` only when deep reactivity is actually needed
+   - Derive with `computed`; watchers only for side effects (`flush: 'post'` when touching DOM)
+3. **Store access**: read state via `storeToRefs(store)`; call actions directly on the store
+4. **Props down, events up** — never mutate props; `defineModel` for true two-way contracts
+5. **Keep DOM interaction with its owning component** (template refs + `watchEffect`/watchers)
+6. **Data fetching**: REST reads go through TanStack Vue Query (`useQuery`/`useMutation`); realtime stays on the WebSocket
 
-2. **Function components only** - No class components
+### Nuxt UI Conventions
 
-3. **StrictMode enabled** - Components render twice in dev
-
-4. **State updates** - Use functional updates for derived state:
-   ```tsx
-   setCount(prev => prev + 1)  // Correct
-   setCount(count + 1)         // Avoid
-   ```
-
-5. **Event handlers** - Define inline or as const arrow functions:
-   ```tsx
-   const handleClick = () => { /* ... */ }
-   // Or inline for simple cases
-   <button onClick={() => setCount(c => c + 1)}>
-   ```
+- Wrap the app in `UApp` (done in `App.vue` template root requirement: toasts/tooltips/overlays)
+- Use semantic colors on components: `color="primary" | "error" | "neutral"`, never raw palette names
+- Theme colors mapped in `vite.config.ts` (`primary: 'teal'`, `neutral: 'slate'`) — keep custom
+  design tokens in `src/index.css` in sync with them
+- Custom mission-control CSS (panels, stage HUD, status strip) lives in `src/App.css` and
+  component-scoped files; Nuxt UI handles standard controls (UButton, USlider, UTextarea, …)
 
 ### Error Handling
 
@@ -130,21 +121,22 @@ export default ComponentName
 - Throw descriptive errors with context
 - No empty catch blocks
 
-```tsx
+```ts
 // Good
 try {
-  const data = await fetchData()
-  return data
+	const data = await fetchData()
+	return data
 } catch (error) {
-  throw new Error(`Failed to fetch data: ${error instanceof Error ? error.message : String(error)}`)
+	throw new Error(`Failed to fetch data: ${error instanceof Error ? error.message : String(error)}`)
 }
 ```
 
 ### CSS Conventions
 
+- Design tokens live in `src/index.css` (imported before component CSS)
 - CSS files live alongside components
 - Use semantic class names
-- Follow existing patterns in `App.css` and `index.css`
+- Follow existing patterns in `App.css`
 
 ---
 
@@ -153,19 +145,22 @@ try {
 ```
 skydive-app/
 ├── src/
-│   ├── main.tsx          # Entry point
-│   ├── App.tsx           # Main app component
-│   ├── App.css           # App styles
-│   ├── index.css         # Global styles
-│   └── assets/           # Static assets (images, SVGs)
+│   ├── main.ts            # App bootstrap (Pinia, router, Nuxt UI, Vue Query)
+│   ├── App.vue            # Console shell
+│   ├── App.css            # Mission-control layout & components
+│   ├── index.css          # Design tokens (imports Tailwind + Nuxt UI)
+│   ├── components/        # Panel SFCs (*.vue + optional css)
+│   ├── stores/            # Pinia stores (session.ts)
+│   ├── utils/             # Framework-free logic (capture, voice, ws-binary)
+│   └── assets/            # Static assets
 ├── server/
-│   └── api/              # Nitro API routes (file-based)
-├── public/               # Static files served at root
-├── vite.config.ts        # Vite configuration
-├── nitro.config.ts       # Nitro server configuration
-├── tsconfig.json         # TypeScript project references
-├── tsconfig.app.json     # App TypeScript config
-└── tsconfig.node.json    # Build tools TypeScript config
+│   ├── api/               # Nitro API routes (file-based)
+│   ├── routes/            # Nitro routes incl. /_ws WebSocket
+│   └── utils/             # Engine, gemini, TTS/STT, protocol, connectors
+├── public/                # Static files served at root
+├── docs/adr/              # Architecture decision records
+├── vite.config.ts         # Vite config (Vue + Nuxt UI + Nitro plugins)
+└── tsconfig*.json         # TypeScript project references
 ```
 
 ---
@@ -177,7 +172,7 @@ API routes are auto-discovered in `server/api/`:
 ```ts
 // server/api/hello.ts
 export default defineEventHandler((event) => {
-  return { message: 'Hello World' }
+	return { message: 'Hello World' }
 })
 ```
 
@@ -189,9 +184,9 @@ Access at: `GET /api/hello`
 
 ### Adding a New Component
 
-1. Create `src/ComponentName.tsx`
-2. Create `src/ComponentName.css` if needed
-3. Import and use in parent component
+1. Create `src/components/ComponentName.vue`
+2. Create `src/components/ComponentName.css` if needed (import it in the SFC)
+3. Import and use in the parent component
 
 ### Adding an API Endpoint
 
@@ -205,21 +200,16 @@ Access at: `GET /api/hello`
 - Never use `@ts-ignore` or `@ts-expect-error`
 - Always define proper types for props
 
-```tsx
-// Props interface
+```vue
+<script setup lang="ts">
 interface ButtonProps {
-  label: string
-  onClick: () => void
-  disabled?: boolean
+	label: string
+	onClick: () => void
+	disabled?: boolean
 }
 
-function Button({ label, onClick, disabled = false }: ButtonProps) {
-  return (
-    <button onClick={onClick} disabled={disabled}>
-      {label}
-    </button>
-  )
-}
+const { label = '', onClick, disabled = false } = defineProps<ButtonProps>()
+</script>
 ```
 
 ---
@@ -228,8 +218,10 @@ function Button({ label, onClick, disabled = false }: ButtonProps) {
 
 - `as any` - Never
 - `@ts-ignore` / `@ts-expect-error` - Never
-- `useMemo` / `useCallback` / `React.memo` - Not needed with React Compiler
-- Class components - Never
+- Options API - Never (Composition API with `<script setup>` only)
+- React imports / JSX / `.tsx` files - Never (this is a Vue app)
+- `ref()` for primitive state where `shallowRef()` suffices - avoid (see Reactivity discipline)
+- Mutating props - Never (emit instead)
 - Empty catch blocks - Never
 - Committing without explicit request - Never
 

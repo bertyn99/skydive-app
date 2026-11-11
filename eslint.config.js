@@ -1,23 +1,17 @@
 import js from '@eslint/js'
 import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
+import pluginVue from 'eslint-plugin-vue'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', '.output']),
   {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      js.configs.recommended,
-      tseslint.configs.recommended,
-      reactHooks.configs.flat.recommended,
-      reactRefresh.configs.vite,
-    ],
+    files: ['**/*.{ts,vue}'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
-      ecmaVersion: 2020,
-      globals: globals.browser,
+      ecmaVersion: 2023,
+      globals: { ...globals.browser, ...globals.node },
     },
     rules: {
       '@typescript-eslint/no-unused-vars': [
@@ -28,6 +22,20 @@ export default defineConfig([
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+    },
+  },
+  {
+    files: ['**/*.vue'],
+    extends: [pluginVue.configs['flat/recommended']],
+    languageOptions: {
+      parserOptions: { parser: tseslint.parser },
+    },
+    rules: {
+      // Repo style: tabs, compact templates.
+      'vue/html-indent': ['error', 'tab'],
+      'vue/max-attributes-per-line': 'off',
+      'vue/singleline-html-element-content-newline': 'off',
+      'vue/html-self-closing': 'off',
     },
   },
 ])

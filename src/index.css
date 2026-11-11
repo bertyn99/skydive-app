@@ -2,6 +2,9 @@
    Mission-control instrument theme: cool slate-charcoal surfaces,
    a single teal signal accent, mono-forward typography. */
 
+@import "tailwindcss";
+@import "@nuxt/ui";
+
 :root {
 	/* Surfaces */
 	--bg: #0b0e14;
