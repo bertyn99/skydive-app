@@ -51,7 +51,9 @@ pnpm fetch:letsplays --id <url|id> --section 12:00-14:00   # grab a slice
 ```
 
 Downloads are large (multi-hour videos), which is why `media/` is gitignored —
-the script is the reproducible path on a fresh machine.
+the script is the reproducible path on a fresh machine. Quality defaults to
+1080p: YouTube serves 1080p as separate video/audio streams, which the script
+merges in-process with mediabunny (no ffmpeg).
 
 Open the app in Chrome, click **Start Capture**, and select the game window to share.
 

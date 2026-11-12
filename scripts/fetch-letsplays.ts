@@ -14,9 +14,13 @@
  *   pnpm fetch:letsplays --id <id|url>         download one specific video
  *   pnpm fetch:letsplays --search "<query>"    search YouTube, download top results
  *   pnpm fetch:letsplays --max 3               cap search results (default 3)
- *   pnpm fetch:letsplays --height 720          cap resolution (default 720, muxed streams only)
+ *   pnpm fetch:letsplays --height 1080         cap resolution (default 1080)
  *   pnpm fetch:letsplays --section 12:00-14:00 also slice this range into a small clip
  *   pnpm fetch:letsplays --dry-run             print the plan, run nothing
+ *
+ * Quality: YouTube caps muxed (audio+video) streams at 720p. For 1080p the
+ * script downloads the best DASH video + audio streams separately and merges
+ * them in-process with mediabunny (stream-copied, no re-encode).
  *
  * For personal development and testing use only.
  */
@@ -34,22 +38,32 @@ import process from "node:process";
 import { pipeline } from "node:stream/promises";
 import {
 	parseVideoId,
-	Quality,
 	Ytdl,
 	YtdlError,
+	type VideoFormat,
+	type VideoInfo,
 } from "@distube/ytdl-core";
-import type { FormatMetadata } from "@distube/ytdl-core";
 import {
 	ALL_FORMATS,
 	BufferTarget,
 	Conversion,
+	EncodedAudioPacketSource,
+	EncodedPacketSink,
+	EncodedVideoPacketSource,
+	FilePathSource,
+	FilePathTarget,
 	Input,
 	Mp4OutputFormat,
 	Output,
-	FilePathSource,
+	type AudioCodec,
+	type VideoCodec,
 } from "mediabunny";
 
 const OUTPUT_DIR = "media/letsplays";
+
+// One YouTube session (PO tokens, blocked clients) shared by search,
+// getInfo and downloads.
+const ytdl = new Ytdl();
 
 interface CuratedVideo {
 	id: string;
@@ -105,7 +119,7 @@ function parseArgs(argv: string[]): FetchArgs {
 		ids: [],
 		search: null,
 		max: 3,
-		height: 720,
+		height: 1080,
 		section: null,
 		dryRun: false,
 		list: false,
@@ -160,21 +174,92 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 		// not downloaded yet — proceed
 	}
 
-	const ytdl = new Ytdl();
+	const info = await ytdl.getInfo(url);
+	const { muxed, video, audio } = pickFormats(info, args.height);
+
+	// YouTube caps muxed (audio+video) streams at 720p; higher resolutions
+	// come as separate DASH streams, merged in-process with mediabunny.
+	if (video && audio && (!muxed || (video.height ?? 0) > (muxed.height ?? 0))) {
+		console.log(
+			`Quality: DASH ${video.height ?? "?"}p (${video.codecs ?? "video"}) + audio (${audio.codecs ?? "audio"}) — merging with mediabunny`,
+		);
+		const videoTmp = path.join(OUTPUT_DIR, `${id}.video.tmp`);
+		const audioTmp = path.join(OUTPUT_DIR, `${id}.audio.tmp`);
+		try {
+			await downloadTo(url, video, `${videoTmp}.part`, videoTmp);
+			await downloadTo(url, audio, `${audioTmp}.part`, audioTmp);
+			await mergeVideoAudio(videoTmp, audioTmp, destination);
+		} finally {
+			await rm(videoTmp, { force: true });
+			await rm(audioTmp, { force: true });
+		}
+	} else if (muxed) {
+		console.log(`Quality: ${muxed.height ?? "?"}p muxed stream`);
+		await downloadTo(url, muxed, `${destination}.part`, destination);
+		return destination;
+	} else {
+		throw new Error(
+			"no usable stream at the requested quality — skipped, try another video",
+		);
+	}
+
+	process.stdout.write("\n");
+	console.log(`Downloaded: ${destination}`);
+	return destination;
+}
+
+/**
+ * Picks the best formats for a target resolution cap: the best muxed stream,
+ * plus the best DASH video/audio pair (mp4 H.264 + m4a AAC) when it is
+ * strictly higher quality than anything muxed.
+ */
+function pickFormats(info: VideoInfo, maxHeight: number): {
+	muxed?: VideoFormat;
+	video?: VideoFormat;
+	audio?: VideoFormat;
+} {
+	const byHeight = (a: VideoFormat, b: VideoFormat): number =>
+		(b.height ?? 0) - (a.height ?? 0) || (b.bitrate ?? 0) - (a.bitrate ?? 0);
+
+	const eligible = info.formats.filter(
+		(format) => (format.height ?? 0) <= maxHeight,
+	);
+	const muxed = eligible
+		.filter((format) => format.hasAudio && format.hasVideo)
+		.sort(byHeight)[0];
+	const video = eligible
+		.filter(
+			(format) =>
+				format.hasVideo &&
+				!format.hasAudio &&
+				format.container === "mp4" &&
+				format.videoCodec?.startsWith("avc1"),
+		)
+		.sort(byHeight)[0];
+	const audio = info.formats
+		.filter(
+			(format) =>
+				format.hasAudio &&
+				!format.hasVideo &&
+				format.container === "mp4" &&
+				(format.audioCodec ?? "").startsWith("mp4a"),
+		)
+		.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+
+	return { muxed, video, audio };
+}
+
+async function downloadTo(
+	url: string,
+	format: VideoFormat,
+	partFile: string,
+	finalFile: string,
+): Promise<void> {
 	let lastPercent = -1;
-	const partFile = `${destination}.part`;
 	try {
 		const stream = ytdl.download(url, {
-			// Tried in order: height-capped muxed first, then any muxed stream —
-			// some videos only serve one muxed format, at a lower resolution.
-			filter: [
-				(format: FormatMetadata) =>
-					format.hasAudio &&
-					format.hasVideo &&
-					(format.height ?? 0) <= args.height,
-				{ hasAudio: true, hasVideo: true },
-			],
-			quality: Quality.Highest,
+			// The exact format wins over quality/filter per ChooseFormatOptions.
+			format,
 			onProgress: (event) => {
 				if (!event.total) return;
 				const percent = Math.floor((event.downloaded / event.total) * 100);
@@ -193,7 +278,7 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 		if (stats.size === 0) {
 			throw new Error("Downloaded file is empty");
 		}
-		await rename(partFile, destination);
+		await rename(partFile, finalFile);
 	} catch (err) {
 		await rm(partFile, { force: true });
 		if (err instanceof YtdlError && err.code === "NO_FORMAT") {
@@ -204,10 +289,69 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 		}
 		throw err;
 	}
+}
 
-	process.stdout.write("\n");
-	console.log(`Downloaded: ${destination}`);
-	return destination;
+/**
+ * Merges a DASH video stream and a DASH audio stream into one mp4 using
+ * mediabunny: packets are stream-copied from both inputs into a single
+ * output — no re-encode, no ffmpeg.
+ */
+async function mergeVideoAudio(
+	videoPath: string,
+	audioPath: string,
+	outPath: string,
+): Promise<void> {
+	const videoInput = new Input({
+		source: new FilePathSource(videoPath),
+		formats: ALL_FORMATS,
+	});
+	const audioInput = new Input({
+		source: new FilePathSource(audioPath),
+		formats: ALL_FORMATS,
+	});
+	const videoTrack = await videoInput.getPrimaryVideoTrack();
+	const audioTrack = await audioInput.getPrimaryAudioTrack();
+	if (!videoTrack || !audioTrack) {
+		throw new Error("DASH merge: missing video or audio track");
+	}
+
+	const output = new Output({
+		format: new Mp4OutputFormat(),
+		target: new FilePathTarget(outPath),
+	});
+	const videoSource = new EncodedVideoPacketSource(
+		videoTrack.codec as VideoCodec,
+	);
+	const audioSource = new EncodedAudioPacketSource(
+		audioTrack.codec as AudioCodec,
+	);
+	output.addVideoTrack(videoSource);
+	output.addAudioTrack(audioSource);
+	await output.start();
+
+	const videoConfig = await videoTrack.getDecoderConfig();
+	let firstVideoPacket = true;
+	for await (const packet of new EncodedPacketSink(videoTrack).packets()) {
+		const meta =
+			firstVideoPacket && videoConfig
+				? { decoderConfig: videoConfig }
+				: undefined;
+		await videoSource.add(packet, meta);
+		firstVideoPacket = false;
+	}
+
+	const audioConfig = await audioTrack.getDecoderConfig();
+	let firstAudioPacket = true;
+	for await (const packet of new EncodedPacketSink(audioTrack).packets()) {
+		const meta =
+			firstAudioPacket && audioConfig
+				? { decoderConfig: audioConfig }
+				: undefined;
+		await audioSource.add(packet, meta);
+		firstAudioPacket = false;
+	}
+
+	await output.finalize();
 }
 
 function parseSection(range: string): SectionRange {
@@ -290,8 +434,6 @@ async function main(): Promise<void> {
 		console.log(`\nOutput directory: ${OUTPUT_DIR}/ (gitignored)`);
 		return;
 	}
-
-	const ytdl = new Ytdl();
 
 	interface Target {
 		id: string;
