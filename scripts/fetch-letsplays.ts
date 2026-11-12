@@ -5,11 +5,8 @@
  * which is gitignored: multi-hour files never enter git. On a fresh machine,
  * run `pnpm fetch:letsplays` to rebuild the local dev corpus.
  *
- * Requirements: Node >= 23.6 (native TS type stripping) and yt-dlp.
- * No ffmpeg needed: yt-dlp grabs a single muxed stream and time-range
- * slicing is done in-process with mediabunny (the app's own media engine).
- *   yt-dlp: https://github.com/yt-dlp/yt-dlp#installation
- *   pipx install yt-dlp  |  brew install yt-dlp  |  winget install yt-dlp
+ * Pure npm: @distube/ytdl-core downloads, mediabunny slices (time ranges).
+ * No yt-dlp, no python, no ffmpeg.
  *
  * Usage:
  *   pnpm fetch:letsplays                       download every curated video
@@ -17,17 +14,31 @@
  *   pnpm fetch:letsplays --id <id|url>         download one specific video
  *   pnpm fetch:letsplays --search "<query>"    search YouTube, download top results
  *   pnpm fetch:letsplays --max 3               cap search results (default 3)
- *   pnpm fetch:letsplays --height 720          cap resolution (default 720, muxed formats only)
+ *   pnpm fetch:letsplays --height 720          cap resolution (default 720, muxed streams only)
  *   pnpm fetch:letsplays --section 12:00-14:00 also slice this range into a small clip
- *   pnpm fetch:letsplays --dry-run             print the yt-dlp commands, run nothing
+ *   pnpm fetch:letsplays --dry-run             print the plan, run nothing
  *
  * For personal development and testing use only.
  */
 
-import { spawn, spawnSync } from "node:child_process";
-import { access, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import {
+	mkdir,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { pipeline } from "node:stream/promises";
+import {
+	parseVideoId,
+	Quality,
+	Ytdl,
+	YtdlError,
+} from "@distube/ytdl-core";
+import type { FormatMetadata } from "@distube/ytdl-core";
 import {
 	ALL_FORMATS,
 	BufferTarget,
@@ -89,8 +100,6 @@ const CURATED: CuratedVideo[] = [
 	},
 ];
 
-const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
-
 function parseArgs(argv: string[]): FetchArgs {
 	const args: FetchArgs = {
 		ids: [],
@@ -126,7 +135,7 @@ function parseArgs(argv: string[]): FetchArgs {
 				args.list = true;
 				break;
 			default:
-				if (arg.startsWith("http") || VIDEO_ID_RE.test(arg)) {
+				if (parseVideoId(arg) ?? /^[A-Za-z0-9_-]{11}$/.test(arg)) {
 					args.ids.push(arg);
 				} else {
 					console.error(`Unknown argument: ${arg}`);
@@ -137,71 +146,68 @@ function parseArgs(argv: string[]): FetchArgs {
 	return args;
 }
 
-function requireYtDlp(): void {
-	const probe = spawnSync("yt-dlp", ["--version"], { encoding: "utf8" });
-	if (probe.error || probe.status !== 0) {
-		console.error(
-			"yt-dlp is required but not installed or not on PATH.\n" +
-				"Install it, then re-run:\n" +
-				"  pipx install yt-dlp        (or: pip install yt-dlp)\n" +
-				"  brew install yt-dlp        (macOS)\n" +
-				"  winget install yt-dlp.yt-dlp   (Windows)\n" +
-				"https://github.com/yt-dlp/yt-dlp#installation",
-		);
-		process.exit(1);
+async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
+	const url = `https://www.youtube.com/watch?v=${id}`;
+	const destination = path.join(OUTPUT_DIR, `${id}.mp4`);
+	try {
+		const stats = await stat(destination);
+		if (stats.size > 0) {
+			console.log(`Already downloaded: ${destination}`);
+			return destination;
+		}
+		console.log(`Found empty file, re-downloading: ${destination}`);
+	} catch {
+		// not downloaded yet — proceed
 	}
-	console.log(`yt-dlp ${probe.stdout.trim()}`);
-}
 
-/** Muxed formats only (`b` selector): yt-dlp merges separate AV streams with
- * ffmpeg, and the whole point is to not require ffmpeg on a fresh machine. */
-function buildYtDlpArgs(args: FetchArgs, target: string): string[] {
-	const ytArgs = [
-		// Node is guaranteed here (the script itself runs on it); modern YouTube
-		// extraction needs a JS runtime to solve the n-challenge.
-		"--js-runtimes",
-		"node",
-		// Muxed formats only (`b` selector): yt-dlp merges separate AV streams
-		// with ffmpeg, and the whole point is to not require ffmpeg.
-		"-f",
-		`b[height<=${args.height}]/b`,
-		"--no-overwrites",
-		"--continue",
-		"--no-playlist",
-		"--restrict-filenames",
-		"-o",
-		`${OUTPUT_DIR}/%(id)s.%(ext)s`,
-	];
-	ytArgs.push(target);
-	return ytArgs;
-}
+	const ytdl = new Ytdl();
+	let lastPercent = -1;
+	const partFile = `${destination}.part`;
+	try {
+		const stream = ytdl.download(url, {
+			// Tried in order: height-capped muxed first, then any muxed stream —
+			// some videos only serve one muxed format, at a lower resolution.
+			filter: [
+				(format: FormatMetadata) =>
+					format.hasAudio &&
+					format.hasVideo &&
+					(format.height ?? 0) <= args.height,
+				{ hasAudio: true, hasVideo: true },
+			],
+			quality: Quality.Highest,
+			onProgress: (event) => {
+				if (!event.total) return;
+				const percent = Math.floor((event.downloaded / event.total) * 100);
+				if (percent === lastPercent) return;
+				lastPercent = percent;
+				process.stdout.write(
+					`\r  ${percent}% (${(event.downloaded / 1024 / 1024).toFixed(1)}MB)`,
+				);
+			},
+		});
 
-function run(
-	args: FetchArgs,
-	ytArgs: string[],
-): Promise<{ code: number; destination: string | null }> {
-	const command = ["yt-dlp", ...ytArgs].join(" ");
-	if (args.dryRun) {
-		console.log(`[dry-run] ${command}`);
-		return Promise.resolve({ code: 0, destination: null });
+		// Write to a .part file and rename atomically, so a failed or empty
+		// download never masquerades as usable material.
+		await pipeline(stream, createWriteStream(partFile));
+		const stats = await stat(partFile);
+		if (stats.size === 0) {
+			throw new Error("Downloaded file is empty");
+		}
+		await rename(partFile, destination);
+	} catch (err) {
+		await rm(partFile, { force: true });
+		if (err instanceof YtdlError && err.code === "NO_FORMAT") {
+			throw new Error(
+				"no muxed (audio+video) stream available — skipped, try another video",
+				{ cause: err },
+			);
+		}
+		throw err;
 	}
-	return new Promise((resolve) => {
-		const child = spawn("yt-dlp", ytArgs);
-		let destination: string | null = null;
-		const onOutput = (chunk: Buffer) => {
-			const text = chunk.toString();
-			process.stdout.write(text);
-			// yt-dlp prints the target path for both fresh downloads and
-			// already-downloaded files; capture it so slicing knows the file.
-			const match =
-				text.match(/Destination: (.+)/) ??
-				text.match(/\[download\] (.+) has already been downloaded/);
-			if (match) destination = match[1].trim();
-		};
-		child.stdout.on("data", onOutput);
-		child.stderr.on("data", onOutput);
-		child.on("exit", (code) => resolve({ code: code ?? 1, destination }));
-	});
+
+	process.stdout.write("\n");
+	console.log(`Downloaded: ${destination}`);
+	return destination;
 }
 
 function parseSection(range: string): SectionRange {
@@ -210,16 +216,16 @@ function parseSection(range: string): SectionRange {
 		console.error(`Invalid --section range: ${range} (expected mm:ss-mm:ss)`);
 		process.exit(1);
 	}
-	const toSecondsParts = to.split(":").map(Number);
-	const fromSecondsParts = from.split(":").map(Number);
+	const toParts = to.split(":").map(Number);
+	const fromParts = from.split(":").map(Number);
 	const toSeconds =
-		toSecondsParts.length === 3
-			? toSecondsParts[0] * 3600 + toSecondsParts[1] * 60 + toSecondsParts[2]
-			: toSecondsParts[0] * 60 + toSecondsParts[1];
+		toParts.length === 3
+			? toParts[0] * 3600 + toParts[1] * 60 + toParts[2]
+			: toParts[0] * 60 + toParts[1];
 	const fromSeconds =
-		fromSecondsParts.length === 3
-			? fromSecondsParts[0] * 3600 + fromSecondsParts[1] * 60 + fromSecondsParts[2]
-			: fromSecondsParts[0] * 60 + fromSecondsParts[1];
+		fromParts.length === 3
+			? fromParts[0] * 3600 + fromParts[1] * 60 + fromParts[2]
+			: fromParts[0] * 60 + fromParts[1];
 	if (
 		Number.isNaN(fromSeconds) ||
 		Number.isNaN(toSeconds) ||
@@ -272,21 +278,6 @@ async function sliceSection(
 	console.log(`Sliced to ${outPath}`);
 }
 
-async function resolveDownloadedFile(videoId: string): Promise<string> {
-	// yt-dlp picks the muxed container extension; probe the known ones.
-	const extensions = ["mp4", "webm", "mkv"];
-	for (const extension of extensions) {
-		const candidate = path.join(OUTPUT_DIR, `${videoId}.${extension}`);
-		try {
-			await access(candidate);
-			return candidate;
-		} catch {
-			// not this extension, try the next
-		}
-	}
-	return path.join(OUTPUT_DIR, `${videoId}.mp4`);
-}
-
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 
@@ -300,68 +291,81 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	requireYtDlp();
+	const ytdl = new Ytdl();
 
-	const targets: string[] = [];
+	interface Target {
+		id: string;
+		title?: string;
+	}
+
+	let targets: Target[];
 	if (args.ids.length > 0) {
-		targets.push(...args.ids);
+		targets = args.ids.map((id) => ({
+			id: parseVideoId(id) ?? id,
+		}));
 	} else if (args.search) {
-		targets.push(`ytsearch${args.max}:${args.search}`);
+		if (args.dryRun) {
+			console.log(`[dry-run] would search "${args.search}" (top ${args.max})`);
+			return;
+		}
+		console.log(`Searching YouTube: "${args.search}" …`);
+		const results = await ytdl.search(args.search);
+		targets = results.slice(0, args.max).map((video) => ({
+			id: video.id,
+			title: video.title,
+		}));
+		if (targets.length === 0) {
+			console.error("Search returned no videos.");
+			process.exit(1);
+		}
 	} else {
-		targets.push(...CURATED.map((video) => video.id));
+		targets = CURATED.map((video) => ({ id: video.id, title: video.title }));
 		console.log(
 			`Downloading ${targets.length} curated lets-play(s) into ${OUTPUT_DIR}/ …`,
 		);
 	}
 
-	if (targets.length === 0) {
-		console.error(
-			"Nothing to download. Pass --id, --search, or run without flags for the curated list.",
-		);
-		process.exit(1);
-	}
-
 	const range = args.section ? parseSection(args.section) : null;
+	await mkdir(OUTPUT_DIR, { recursive: true });
 	let failed = 0;
 
 	for (const target of targets) {
-		const label = args.search ? `search "${args.search}"` : target;
+		const label = target.title ?? target.id;
 		console.log(
-			`\n=== Downloading ${label} (<= ${args.height}p, muxed stream) ===`,
+			`\n=== ${label} (${target.id}, <= ${args.height}p, muxed stream) ===`,
 		);
-		const { code, destination } = await run(
-			args,
-			buildYtDlpArgs(args, target),
-		);
-		if (code !== 0) {
-			failed += 1;
+		if (args.dryRun) {
+			console.log(
+				`[dry-run] download -> ${path.join(OUTPUT_DIR, `${target.id}.mp4`)}${
+					range
+						? ` + slice ${range.fromSeconds}s-${range.toSeconds}s`
+						: ""
+				}`,
+			);
 			continue;
 		}
 
-		if (args.dryRun || !range) continue;
-
-		const videoId = VIDEO_ID_RE.test(target)
-			? target
-			: (target.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1] ?? target);
-		const fullFile = destination ?? (await resolveDownloadedFile(videoId));
-		const base = path
-			.basename(fullFile)
-			.replace(/\.[^.]+$/, "");
-		const sliceName = `${base}.${range.fromSeconds}s-${range.toSeconds}s.mp4`;
 		try {
-			await sliceSection(
-				fullFile,
-				path.join(OUTPUT_DIR, sliceName),
-				range,
-			);
-			console.log(
-				`Full video kept at ${fullFile} (delete it manually if you only need the slice).`,
-			);
+			const fullFile = await downloadVideo(target.id, args);
+			if (range) {
+				const base = path.basename(fullFile).replace(/\.[^.]+$/, "");
+				await sliceSection(
+					fullFile,
+					path.join(
+						OUTPUT_DIR,
+						`${base}.${range.fromSeconds}s-${range.toSeconds}s.mp4`,
+					),
+					range,
+				);
+				console.log(
+					`Full video kept at ${fullFile} (delete it manually if you only need the slice).`,
+				);
+			}
 		} catch (err) {
-			console.error(
-				`Slice failed: ${err instanceof Error ? err.message : String(err)}`,
-			);
 			failed += 1;
+			console.error(
+				`Failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
 		}
 	}
 

@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.117",
+    "@distube/ytdl-core": "^5.2.1",
+    "@distube/ytsr": "^2.0.4",
     "@tanstack/vue-query": "^5.107.1",
     "ai": "^7.0.169",
     "h3": "^2.0.8",

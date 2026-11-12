@@ -27,8 +27,6 @@ Browser                         Server
 
 - **Node.js** 23.6+ (native TypeScript execution for scripts)
 - A **Chromium-based browser** (Chrome, Edge, Arc, Brave) — WebCodecs is required
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)** — to download
-  lets-play dev material (no ffmpeg needed)
 - A **Google AI** API key for Gemini (`GOOGLE_GENERATIVE_AI_API_KEY`)
 - A **Mistral** API key for TTS (`MISTRAL_API_KEY`)
 
@@ -42,7 +40,8 @@ npm run dev
 ### Sim-session dev material (lets-plays)
 
 The Sim mode runs the whole pipeline against a video file instead of the live
-game. Download source videos into the gitignored `media/letsplays/` folder:
+game. Download source videos into the gitignored `media/letsplays/` folder —
+pure npm, no external tools (`@distube/ytdl-core` downloads, mediabunny slices):
 
 ```bash
 pnpm fetch:letsplays                     # curated Skyrim playthroughs
