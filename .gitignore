@@ -13,6 +13,9 @@ dist
 dist-ssr
 *.local
 
+# Local dev media (lets-play downloads, never committed)
+media
+
 # Environment variables
 .env
 

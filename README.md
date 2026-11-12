@@ -25,8 +25,10 @@ Browser                         Server
 
 ## Prerequisites
 
-- **Node.js** 20+
+- **Node.js** 23.6+ (native TypeScript execution for scripts)
 - A **Chromium-based browser** (Chrome, Edge, Arc, Brave) — WebCodecs is required
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)** — to download
+  lets-play dev material (no ffmpeg needed)
 - A **Google AI** API key for Gemini (`GOOGLE_GENERATIVE_AI_API_KEY`)
 - A **Mistral** API key for TTS (`MISTRAL_API_KEY`)
 
@@ -36,6 +38,21 @@ Browser                         Server
 npm install
 npm run dev
 ```
+
+### Sim-session dev material (lets-plays)
+
+The Sim mode runs the whole pipeline against a video file instead of the live
+game. Download source videos into the gitignored `media/letsplays/` folder:
+
+```bash
+pnpm fetch:letsplays                     # curated Skyrim playthroughs
+pnpm fetch:letsplays --list              # see what's in the curated list
+pnpm fetch:letsplays --search "query"    # search YouTube (top 3)
+pnpm fetch:letsplays --id <url|id> --section 12:00-14:00   # grab a slice
+```
+
+Downloads are large (multi-hour videos), which is why `media/` is gitignored —
+the script is the reproducible path on a fresh machine.
 
 Open the app in Chrome, click **Start Capture**, and select the game window to share.
 

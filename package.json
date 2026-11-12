@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "fetch:letsplays": "node scripts/fetch-letsplays.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.117",
