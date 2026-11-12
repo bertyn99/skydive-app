@@ -39,7 +39,6 @@ import { pipeline } from "node:stream/promises";
 import {
 	parseVideoId,
 	Ytdl,
-	YtdlError,
 	type VideoFormat,
 	type VideoInfo,
 } from "@distube/ytdl-core";
@@ -185,17 +184,24 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 		);
 		const videoTmp = path.join(OUTPUT_DIR, `${id}.video.tmp`);
 		const audioTmp = path.join(OUTPUT_DIR, `${id}.audio.tmp`);
+		const mergedPart = `${destination}.part`;
 		try {
-			await downloadTo(url, video, `${videoTmp}.part`, videoTmp);
-			await downloadTo(url, audio, `${audioTmp}.part`, audioTmp);
-			await mergeVideoAudio(videoTmp, audioTmp, destination);
+			await downloadTo(url, video, itagPartFile(id, video), videoTmp);
+			await downloadTo(url, audio, itagPartFile(id, audio), audioTmp);
+			await mergeVideoAudio(videoTmp, audioTmp, mergedPart);
+			await rename(mergedPart, destination);
+		} catch (err) {
+			// A partial merge at the final path would masquerade as valid
+			// material on the next run — keep it in .part and remove on error.
+			await rm(mergedPart, { force: true });
+			throw err;
 		} finally {
 			await rm(videoTmp, { force: true });
 			await rm(audioTmp, { force: true });
 		}
 	} else if (muxed) {
 		console.log(`Quality: ${muxed.height ?? "?"}p muxed stream`);
-		await downloadTo(url, muxed, `${destination}.part`, destination);
+		await downloadTo(url, muxed, itagPartFile(id, muxed), destination);
 		return destination;
 	} else {
 		throw new Error(
@@ -206,6 +212,11 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 	process.stdout.write("\n");
 	console.log(`Downloaded: ${destination}`);
 	return destination;
+}
+
+/** Per-format part file: the itag scope makes resume data format-specific. */
+function itagPartFile(id: string, format: VideoFormat): string {
+	return path.join(OUTPUT_DIR, `.${id}.${format.itag}.part`);
 }
 
 /**
@@ -256,37 +267,58 @@ async function downloadTo(
 	finalFile: string,
 ): Promise<void> {
 	let lastPercent = -1;
+
+	// Resume: continue from the part file's size when one exists for this
+	// exact format (itag-scoped), instead of re-downloading multi-GB data.
+	let start = 0;
+	try {
+		start = (await stat(partFile)).size;
+		if (start > 0) {
+			console.log(
+				`  resuming ${(format.itag ?? "?")} from ${(start / 1024 / 1024).toFixed(1)}MB`,
+			);
+		}
+	} catch {
+		// fresh download
+	}
+
 	try {
 		const stream = ytdl.download(url, {
 			// The exact format wins over quality/filter per ChooseFormatOptions.
 			format,
+			range: start > 0 ? { start } : undefined,
 			onProgress: (event) => {
-				if (!event.total) return;
-				const percent = Math.floor((event.downloaded / event.total) * 100);
+				const downloaded = start + event.downloaded;
+				const total = event.total ? start + event.total : undefined;
+				if (!total) return;
+				const percent = Math.min(
+					100,
+					Math.floor((downloaded / total) * 100),
+				);
 				if (percent === lastPercent) return;
 				lastPercent = percent;
 				process.stdout.write(
-					`\r  ${percent}% (${(event.downloaded / 1024 / 1024).toFixed(1)}MB)`,
+					`\r  ${percent}% (${(downloaded / 1024 / 1024).toFixed(1)}MB)`,
 				);
 			},
 		});
 
-		// Write to a .part file and rename atomically, so a failed or empty
-		// download never masquerades as usable material.
-		await pipeline(stream, createWriteStream(partFile));
+		// Append to the part file (resumes keep their prefix), then rename
+		// atomically so a failed or empty download never masquerades as
+		// usable material.
+		await pipeline(stream, createWriteStream(partFile, { flags: "a" }));
 		const stats = await stat(partFile);
 		if (stats.size === 0) {
 			throw new Error("Downloaded file is empty");
 		}
 		await rename(partFile, finalFile);
 	} catch (err) {
-		await rm(partFile, { force: true });
-		if (err instanceof YtdlError && err.code === "NO_FORMAT") {
-			throw new Error(
-				"no muxed (audio+video) stream available — skipped, try another video",
-				{ cause: err },
-			);
-		}
+		// Keep the part file on failure: it seeds the next resume attempt.
+		// (A truncated tail is possible if a crash happened mid-chunk; the
+		// next run continues from its size, which is fine for dev material.)
+		console.error(
+			`\n  download interrupted — part file kept for resume: ${partFile}`,
+		);
 		throw err;
 	}
 }
@@ -294,13 +326,15 @@ async function downloadTo(
 /**
  * Merges a DASH video stream and a DASH audio stream into one mp4 using
  * mediabunny: packets are stream-copied from both inputs into a single
- * output — no re-encode, no ffmpeg.
+ * output — no re-encode, no ffmpeg. Writes to `outPath.part` and renames
+ * atomically, so a failed merge never leaves corrupt material behind.
  */
 async function mergeVideoAudio(
 	videoPath: string,
 	audioPath: string,
 	outPath: string,
 ): Promise<void> {
+	const outPart = `${outPath}.part`;
 	const videoInput = new Input({
 		source: new FilePathSource(videoPath),
 		formats: ALL_FORMATS,
@@ -312,12 +346,13 @@ async function mergeVideoAudio(
 	const videoTrack = await videoInput.getPrimaryVideoTrack();
 	const audioTrack = await audioInput.getPrimaryAudioTrack();
 	if (!videoTrack || !audioTrack) {
+		await rm(outPart, { force: true });
 		throw new Error("DASH merge: missing video or audio track");
 	}
 
 	const output = new Output({
 		format: new Mp4OutputFormat(),
-		target: new FilePathTarget(outPath),
+		target: new FilePathTarget(outPart),
 	});
 	const videoSource = new EncodedVideoPacketSource(
 		videoTrack.codec as VideoCodec,
@@ -327,31 +362,42 @@ async function mergeVideoAudio(
 	);
 	output.addVideoTrack(videoSource);
 	output.addAudioTrack(audioSource);
-	await output.start();
 
-	const videoConfig = await videoTrack.getDecoderConfig();
-	let firstVideoPacket = true;
-	for await (const packet of new EncodedPacketSink(videoTrack).packets()) {
-		const meta =
-			firstVideoPacket && videoConfig
-				? { decoderConfig: videoConfig }
-				: undefined;
-		await videoSource.add(packet, meta);
-		firstVideoPacket = false;
+	try {
+		await output.start();
+
+		const videoConfig = await videoTrack.getDecoderConfig();
+		let firstVideoPacket = true;
+		for await (const packet of new EncodedPacketSink(videoTrack).packets()) {
+			const meta =
+				firstVideoPacket && videoConfig
+					? { decoderConfig: videoConfig }
+					: undefined;
+			await videoSource.add(packet, meta);
+			firstVideoPacket = false;
+		}
+
+		const audioConfig = await audioTrack.getDecoderConfig();
+		let firstAudioPacket = true;
+		for await (const packet of new EncodedPacketSink(audioTrack).packets()) {
+			const meta =
+				firstAudioPacket && audioConfig
+					? { decoderConfig: audioConfig }
+					: undefined;
+			await audioSource.add(packet, meta);
+			firstAudioPacket = false;
+		}
+
+		await output.finalize();
+	} catch (err) {
+		if (output.state === "started") {
+			await output.cancel();
+		}
+		await rm(outPart, { force: true });
+		throw err;
 	}
 
-	const audioConfig = await audioTrack.getDecoderConfig();
-	let firstAudioPacket = true;
-	for await (const packet of new EncodedPacketSink(audioTrack).packets()) {
-		const meta =
-			firstAudioPacket && audioConfig
-				? { decoderConfig: audioConfig }
-				: undefined;
-		await audioSource.add(packet, meta);
-		firstAudioPacket = false;
-	}
-
-	await output.finalize();
+	await rename(outPart, outPath);
 }
 
 function parseSection(range: string): SectionRange {
@@ -425,6 +471,15 @@ async function sliceSection(
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 
+	if (!Number.isFinite(args.height) || args.height < 144) {
+		console.error(`Invalid --height: ${args.height} (expected >= 144)`);
+		process.exit(1);
+	}
+	if (!Number.isFinite(args.max) || args.max < 1) {
+		console.error(`Invalid --max: ${args.max} (expected >= 1)`);
+		process.exit(1);
+	}
+
 	if (args.list) {
 		console.log("Curated lets-plays:\n");
 		for (const video of CURATED) {
@@ -474,7 +529,7 @@ async function main(): Promise<void> {
 	for (const target of targets) {
 		const label = target.title ?? target.id;
 		console.log(
-			`\n=== ${label} (${target.id}, <= ${args.height}p, muxed stream) ===`,
+			`\n=== ${label} (${target.id}, <= ${args.height}p) ===`,
 		);
 		if (args.dryRun) {
 			console.log(
