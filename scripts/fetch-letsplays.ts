@@ -15,7 +15,10 @@
  *   pnpm fetch:letsplays --search "<query>"    search YouTube, download top results
  *   pnpm fetch:letsplays --max 3               cap search results (default 3)
  *   pnpm fetch:letsplays --height 1080         cap resolution (default 1080)
- *   pnpm fetch:letsplays --section 12:00-14:00 also slice this range into a small clip
+ *   pnpm fetch:letsplays --section 12:00-14:00 stream only this window into
+ *                                              a small clip (falls back to a
+ *                                              full download when the video
+ *                                              is not SABR-delivered)
  *   pnpm fetch:letsplays --dry-run             print the plan, run nothing
  *
  * Quality: YouTube caps muxed (audio+video) streams at 720p. For 1080p the
@@ -28,6 +31,7 @@
 import { createWriteStream } from "node:fs";
 import {
 	mkdir,
+	open,
 	rename,
 	rm,
 	stat,
@@ -159,9 +163,104 @@ function parseArgs(argv: string[]): FetchArgs {
 	return args;
 }
 
-async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
+async function downloadVideo(
+	id: string,
+	args: FetchArgs,
+	range: SectionRange | null,
+): Promise<string> {
 	const url = `https://www.youtube.com/watch?v=${id}`;
 	const destination = path.join(OUTPUT_DIR, `${id}.mp4`);
+	const sectionFile = path.join(
+		OUTPUT_DIR,
+		`${id}.${range?.fromSeconds ?? 0}s-${range?.toSeconds ?? 0}s.mp4`,
+	);
+
+	if (range) {
+		// Section mode: stream only the requested window instead of pulling
+		// the whole multi-hour file. Validated below; falls back to a full
+		// download + slice when the server ignores the time offset.
+		const sectionLen = range.toSeconds - range.fromSeconds;
+		const info = await ytdl.getInfo(url);
+		const { muxed, video, audio } = pickFormats(info, args.height);
+
+		let sectionSource: {
+			format: VideoFormat;
+			kind: "muxed" | "video" | "audio";
+		} | null = null;
+		let dashAudioFormat: VideoFormat | undefined;
+		if (muxed) {
+			sectionSource = { format: muxed, kind: "muxed" };
+		} else if (video && audio) {
+			dashAudioFormat = audio;
+			sectionSource = { format: video, kind: "video" };
+		}
+		if (!sectionSource) {
+			throw new Error(
+				"no usable stream at the requested quality — skipped, try another video",
+			);
+		}
+
+		console.log(
+			`Section ${range.fromSeconds}s-${range.toSeconds}s: streaming window only (${sectionSource.kind})`,
+		);
+		const videoPartial = path.join(OUTPUT_DIR, `.${id}.section-video.tmp`);
+		const audioPartial = path.join(OUTPUT_DIR, `.${id}.section-audio.tmp`);
+		const sectionPart = `${sectionFile}.part`;
+		try {
+			await captureSectionStream(
+				url,
+				sectionSource.format,
+				range,
+				sectionSource.kind === "audio" ? audioPartial : videoPartial,
+			);
+			if (sectionSource.kind === "video" && dashAudioFormat) {
+				await captureSectionStream(url, dashAudioFormat, range, audioPartial);
+			}
+
+			// Trim each partial to the exact window, then assemble the final
+			// section file (muxed: direct trim; DASH: trim both, then merge).
+			if (sectionSource.kind === "muxed") {
+				await trimSectionFile(
+					videoPartial,
+					sectionPart,
+					range,
+					sectionLen,
+				);
+			} else {
+				const trimmedVideo = `${videoPartial}.trimmed`;
+				const trimmedAudio = `${audioPartial}.trimmed`;
+				await trimSectionFile(videoPartial, trimmedVideo, range, sectionLen);
+				await trimSectionFile(audioPartial, trimmedAudio, range, sectionLen);
+				await mergeVideoAudio(trimmedVideo, trimmedAudio, sectionPart);
+				await rm(trimmedVideo, { force: true });
+				await rm(trimmedAudio, { force: true });
+			}
+
+			// Validate: the server may have ignored startTimeMs (partial starts
+			// at 0 = wrong content) or cut early. Fall back to the full path.
+			const probe = new Input({
+				source: new FilePathSource(sectionPart),
+				formats: ALL_FORMATS,
+			});
+			const duration = await probe.computeDuration();
+			if (duration < sectionLen * 0.8) {
+				throw new Error(
+					`section too short (${duration.toFixed(1)}s of ${sectionLen}s)`,
+				);
+			}
+			await rename(sectionPart, sectionFile);
+			console.log(`Section saved: ${sectionFile}`);
+			return sectionFile;
+		} catch (err) {
+			await rm(sectionPart, { force: true });
+			await rm(videoPartial, { force: true });
+			await rm(audioPartial, { force: true });
+			console.error(
+				`Section streaming failed (${err instanceof Error ? err.message : String(err)}) — falling back to full download`,
+			);
+		}
+	}
+
 	try {
 		const stats = await stat(destination);
 		if (stats.size > 0) {
@@ -217,6 +316,134 @@ async function downloadVideo(id: string, args: FetchArgs): Promise<string> {
 /** Per-format part file: the itag scope makes resume data format-specific. */
 function itagPartFile(id: string, format: VideoFormat): string {
 	return path.join(OUTPUT_DIR, `.${id}.${format.itag}.part`);
+}
+
+/** Canonical name for a section clip of a video. */
+function sectionFilePath(id: string, range: SectionRange): string {
+	return path.join(
+		OUTPUT_DIR,
+		`${id}.${range.fromSeconds}s-${range.toSeconds}s.mp4`,
+	);
+}
+
+function fullFileLabel(id: string): string {
+	return path.join(OUTPUT_DIR, `${id}.mp4`);
+}
+
+/**
+ * Streams only the requested time window: ytdl-core's startTimeMs seeks the
+ * server-side segment stream to the window start; the byte cutoff stops the
+ * transfer once enough media (window + margin) has been captured.
+ */
+async function captureSectionStream(
+	url: string,
+	format: VideoFormat,
+	range: SectionRange,
+	tmpPath: string,
+): Promise<void> {
+	const sectionLen = range.toSeconds - range.fromSeconds;
+	const cutoffBytes = Math.ceil(
+		((format.bitrate ?? 2_000_000) / 8) * (sectionLen + 8),
+	);
+	// 1s pre-roll so the window starts on (or just after) a keyframe.
+	const ytdlStream = ytdl.download(url, {
+		format,
+		startTimeMs: Math.max(0, range.fromSeconds * 1000 - 1000),
+		onProgress: (event) => {
+			process.stdout.write(
+				`\r  captured ${(event.downloaded / 1024 / 1024).toFixed(1)}MB`,
+			);
+		},
+	});
+	const out = createWriteStream(tmpPath);
+	let received = 0;
+	let settled = false;
+
+	await new Promise<void>((resolve, reject) => {
+		const settle = (err?: Error): void => {
+			if (settled) return;
+			settled = true;
+			if (err) {
+				ytdlStream.destroy();
+				out.destroy();
+				reject(err);
+				return;
+			}
+			out.end(() => resolve());
+		};
+
+		ytdlStream.on("data", (chunk: Buffer) => {
+			received += chunk.length;
+			if (!out.write(chunk)) {
+				ytdlStream.pause();
+				out.once("drain", () => ytdlStream.resume());
+			}
+			if (received >= cutoffBytes) {
+				settle();
+				ytdlStream.destroy();
+			}
+		});
+		ytdlStream.on("end", () => settle());
+		ytdlStream.on("error", (err) => settle(err));
+		out.on("error", (err) => settle(err));
+	});
+
+	process.stdout.write("\n");
+}
+
+/** Timestamp of the first packet in a file (video preferred, audio fallback). */
+async function firstPacketTimestamp(input: Input): Promise<number | null> {
+	const videoTrack = await input.getPrimaryVideoTrack();
+	const audioTrack = videoTrack ? null : await input.getPrimaryAudioTrack();
+	const track = videoTrack ?? audioTrack;
+	if (!track) return null;
+	const sink = new EncodedPacketSink(track);
+	const packet = await sink.getFirstPacket();
+	return packet?.timestamp ?? null;
+}
+
+/**
+ * Cuts a captured partial file down to the exact window. The partial keeps
+ * the original timeline, so the trim is computed from its first packet —
+ * if the server ignored startTimeMs (first packet near 0), the trim window
+ * lands outside the data and validation downstream catches it.
+ */
+async function trimSectionFile(
+	inputPath: string,
+	outPath: string,
+	range: SectionRange,
+	sectionLen: number,
+): Promise<void> {
+	const input = new Input({
+		source: new FilePathSource(inputPath),
+		formats: ALL_FORMATS,
+	});
+	const firstTs = await firstPacketTimestamp(input);
+	const start = Math.max(firstTs ?? range.fromSeconds, range.fromSeconds);
+	const output = new Output({
+		format: new Mp4OutputFormat({ fastStart: "in-memory" }),
+		target: new BufferTarget(),
+	});
+
+	const conversion = await Conversion.init({
+		input,
+		output,
+		trim: { start, end: start + sectionLen },
+	});
+
+	if (!conversion.isValid) {
+		throw new Error(
+			`Cannot trim section: discarded tracks ${conversion.discardedTracks
+				.map((track) => `${track.track.type} (${track.reason})`)
+				.join(", ")}`,
+		);
+	}
+
+	await conversion.execute();
+
+	const buffer = output.target.buffer;
+	if (!buffer) throw new Error("Trim produced no data");
+	await writeFile(outPath, Buffer.from(buffer));
 }
 
 /**
@@ -307,6 +534,11 @@ async function downloadTo(
 		// atomically so a failed or empty download never masquerades as
 		// usable material.
 		await pipeline(stream, createWriteStream(partFile, { flags: "a" }));
+		// Flush to disk so a resume seed survives a power cut, not just a
+		// process crash.
+		const handle = await open(partFile, "r+");
+		await handle.sync();
+		await handle.close();
 		const stats = await stat(partFile);
 		if (stats.size === 0) {
 			throw new Error("Downloaded file is empty");
@@ -543,20 +775,14 @@ async function main(): Promise<void> {
 		}
 
 		try {
-			const fullFile = await downloadVideo(target.id, args);
-			if (range) {
-				const base = path.basename(fullFile).replace(/\.[^.]+$/, "");
-				await sliceSection(
-					fullFile,
-					path.join(
-						OUTPUT_DIR,
-						`${base}.${range.fromSeconds}s-${range.toSeconds}s.mp4`,
-					),
-					range,
-				);
-				console.log(
-					`Full video kept at ${fullFile} (delete it manually if you only need the slice).`,
-				);
+			const file = await downloadVideo(target.id, args, range);
+			if (
+				range &&
+				file === path.join(OUTPUT_DIR, `${target.id}.mp4`)
+			) {
+				// Fallback delivered the full file — still cut the section.
+				await sliceSection(file, sectionFilePath(target.id, range), range);
+				console.log(`Full video kept at ${fullFileLabel(target.id)}`);
 			}
 		} catch (err) {
 			failed += 1;
