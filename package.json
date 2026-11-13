@@ -8,7 +8,8 @@
     "build": "vue-tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "fetch:letsplays": "node scripts/fetch-letsplays.ts"
+    "fetch:letsplays": "node scripts/fetch-letsplays.ts",
+    "setup:whisper": "bash scripts/setup-whisper.sh"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.117",

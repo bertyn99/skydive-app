@@ -83,13 +83,9 @@ const sttItems = computed(() => markItems(STT_ENGINE_OPTIONS, sttAvailability.va
 // Copyable setup commands for local engines (cloud engines only need env vars).
 const SETUP_COMMANDS: Record<string, string> = {
 	"piper-local": "pip install piper-tts",
-	"whisper-local": [
-		"git clone https://github.com/ggml-org/whisper.cpp",
-		"cmake -B whisper.cpp/build -S whisper.cpp",
-		"cmake --build whisper.cpp/build --target whisper-server",
-		"sh whisper.cpp/models/download-ggml-model.sh base",
-		"./build/bin/whisper-server -m models/ggml-base.bin --port 8080",
-	].join("\n"),
+	// The whisper setup card below installs the model and starts the server;
+	// only the binary still needs a one-time local build.
+	"whisper-local": "pnpm setup:whisper",
 };
 
 function setupCommand(engine: string): string | undefined {
@@ -111,6 +107,165 @@ async function copySetup(kind: "tts" | "stt") {
 		});
 	}
 }
+
+// --- Whisper local model manager (STT) -------------------------------------
+// Hex-style local model pipeline: pinned HF catalog, download with progress,
+// start/stop the whisper.cpp sidecar — all from the dashboard.
+
+interface WhisperModelSpecPayload {
+	id: string;
+	label: string;
+	kind: "ggml" | "system";
+	platform?: "darwin" | "linux" | "win32";
+	languages: string[];
+	languagesNote: string;
+	selfDetecting?: boolean;
+	diskNote: string;
+	ramNote: string;
+	note: string;
+	hexNote?: string;
+}
+
+interface WhisperModelReportPayload {
+	spec: WhisperModelSpecPayload;
+	status: "missing" | "partial" | "downloading" | "found" | "verified" | "corrupt" | "system";
+	supported: boolean;
+	receivedBytes?: number;
+	filePath?: string;
+	foundPath?: string;
+	error?: string;
+	partialBytes?: number;
+}
+
+interface WhisperSetupPayload {
+	modelsDir: string;
+	platform: string;
+	language: string;
+	recommendedId: string;
+	activeRunner: { runner: "parakeet-cli" | "whisper-server"; modelId: string } | null;
+	binary: { available: boolean; path?: string; detail: string; setupHint?: string };
+	ffmpeg: { available: boolean; detail: string };
+	server: { running: boolean; responding: boolean; pid?: number; modelId?: string; port: number; detail: string };
+	models: WhisperModelReportPayload[];
+	install: { modelId: string; status: string; receivedBytes: number; totalBytes: number; error?: string } | null;
+	lastInstallError: { modelId: string; error: string } | null;
+}
+
+async function postJson(url: string, body?: unknown): Promise<unknown> {
+	const res = await fetch(url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: body === undefined ? undefined : JSON.stringify(body),
+	});
+	const payload = (await res.json().catch(() => null)) as { statusMessage?: string; message?: string } | null;
+	if (!res.ok) {
+		const detail = payload?.statusMessage ?? payload?.message ?? `HTTP ${res.status}`;
+		throw new Error(detail);
+	}
+	return payload;
+}
+
+async function fetchWhisperSetup(): Promise<WhisperSetupPayload> {
+	const res = await fetch("/api/engines/whisper-setup");
+	if (!res.ok) throw new Error(`Whisper setup check failed (${res.status})`);
+	return res.json() as Promise<WhisperSetupPayload>;
+}
+
+const whisperSetupQuery = useQuery({
+	queryKey: ["whisper-setup"],
+	queryFn: fetchWhisperSetup,
+	// Poll once per second while a model download is running, then stop.
+	refetchInterval: (query) =>
+		(query.state.data as WhisperSetupPayload | undefined)?.install?.status === "downloading"
+			? 1000
+			: false,
+});
+
+const whisperSetup = computed(() => whisperSetupQuery.data.value);
+const installBusy = computed(() => whisperSetup.value?.install?.status === "downloading");
+
+/** Models that apply to this platform (Apple Speech only on macOS, like Hex). */
+const platformModels = computed(() =>
+	(whisperSetup.value?.models ?? []).filter(
+		(model) => !model.spec.platform || model.spec.platform === whisperSetup.value?.platform,
+	),
+);
+
+function isLanguagePick(model: WhisperModelReportPayload): boolean {
+	return whisperSetup.value?.recommendedId === model.spec.id;
+}
+
+function formatMb(bytes: number): string {
+	return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+function downloadPct(): string {
+	const total = whisperSetup.value?.install?.totalBytes ?? 0;
+	if (!total) return "0";
+	const pct = Math.floor(((whisperSetup.value?.install?.receivedBytes ?? 0) / total) * 100);
+	return String(Math.min(100, Math.max(0, pct)));
+}
+
+const canStartServer = computed(() => {
+	const setup = whisperSetup.value;
+	if (!setup || !setup.binary.available || installBusy.value) return false;
+	if (setup.server.running || setup.server.responding) return false;
+	return setup.models.some((model) => model.status === "verified" || model.status === "found");
+});
+
+function invalidateVoiceQueries() {
+	void queryClient.invalidateQueries({ queryKey: ["whisper-setup"] });
+	void queryClient.invalidateQueries({ queryKey: ["engines-availability"] });
+}
+
+function whisperActionError(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+const {
+	mutate: mutateInstallModel,
+} = useMutation({
+	mutationFn: (modelId: string) => postJson("/api/engines/whisper-setup/install-model", { modelId }),
+	onSuccess: () => invalidateVoiceQueries(),
+	onError: (err) => {
+		toast.add({ title: "Whisper install failed", description: whisperActionError(err), color: "error" });
+		invalidateVoiceQueries();
+	},
+});
+
+const {
+	mutate: mutateRemoveModel,
+} = useMutation({
+	mutationFn: (modelId: string) => postJson("/api/engines/whisper-setup/remove-model", { modelId }),
+	onSuccess: () => invalidateVoiceQueries(),
+	onError: (err) => {
+		toast.add({ title: "Whisper model removal failed", description: whisperActionError(err), color: "error" });
+	},
+});
+
+const {
+	isPending: startServerPending,
+	mutate: mutateStartServer,
+} = useMutation({
+	mutationFn: () => postJson("/api/engines/whisper-setup/start-server"),
+	onSuccess: () => {
+		toast.add({ title: "Whisper server running", color: "success" });
+		invalidateVoiceQueries();
+	},
+	onError: (err) => {
+		toast.add({ title: "Whisper server failed to start", description: whisperActionError(err), color: "error" });
+	},
+});
+
+const {
+	mutate: mutateStopServer,
+} = useMutation({
+	mutationFn: () => postJson("/api/engines/whisper-setup/stop-server"),
+	onSuccess: () => invalidateVoiceQueries(),
+	onError: (err) => {
+		toast.add({ title: "Whisper server stop failed", description: whisperActionError(err), color: "error" });
+	},
+});
 
 // Current server-side engine config, refreshed over REST.
 const {
@@ -354,6 +509,147 @@ function save() {
 						</div>
 					</div>
 				</UFormField>
+
+				<!-- Whisper local model manager: pinned HF catalog + sidecar control
+					(Hex-style first-run experience, in the dashboard instead of the app). -->
+				<div
+					v-if="sttEngine === 'whisper-local' && whisperSetup"
+					class="rounded-md border border-default bg-elevated/40 p-3"
+				>
+					<div class="flex items-center justify-between gap-2">
+						<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">Whisper local · models</span>
+						<div class="flex items-center gap-1.5">
+							<UBadge
+								v-if="whisperSetup.language"
+								color="info"
+								variant="subtle"
+								size="sm"
+							>
+								listening in {{ whisperSetup.language }}
+							</UBadge>
+							<UBadge
+								:color="whisperSetup.server.running ? 'success' : 'neutral'"
+								variant="subtle"
+								size="sm"
+							>
+								{{ whisperSetup.server.running ? "server up" : "server down" }}
+							</UBadge>
+						</div>
+					</div>
+
+					<div class="mt-2 flex flex-col gap-0.5 font-mono text-[10.5px]">
+						<p
+							v-if="whisperSetup.activeRunner"
+							class="text-primary/80"
+						>
+							→ {{ whisperSetup.activeRunner.runner }} on {{ whisperSetup.activeRunner.modelId }}
+						</p>
+						<p :class="whisperSetup.binary.available ? 'text-success/80' : 'text-warning'">
+							{{ whisperSetup.binary.available ? "✓" : "✗" }} {{ whisperSetup.binary.detail }}
+						</p>
+						<p v-if="!whisperSetup.binary.available" class="text-muted">
+							{{ whisperSetup.binary.setupHint }}
+						</p>
+						<p :class="whisperSetup.ffmpeg.available ? 'text-success/80' : 'text-warning'">
+							{{ whisperSetup.ffmpeg.available ? "✓" : "✗" }} {{ whisperSetup.ffmpeg.detail }}
+						</p>
+					</div>
+
+					<div v-if="!whisperSetup.binary.available" class="mt-2 flex items-center gap-2">
+						<pre class="min-w-0 flex-1 overflow-x-auto rounded-sm bg-elevated px-2 py-1.5 font-mono text-[10.5px] text-highlighted">{{ setupCommand("whisper-local") }}</pre>
+						<UButton
+							icon="i-lucide-copy"
+							size="xs"
+							color="neutral"
+							variant="soft"
+							aria-label="Copy whisper build command"
+							@click="copySetup('stt')"
+						/>
+					</div>
+
+					<div class="mt-2.5 flex flex-col gap-0.5">
+						<div
+							v-for="model in platformModels"
+							:key="model.spec.id"
+							class="flex items-center justify-between gap-2 rounded-sm px-1.5 py-1 hover:bg-elevated"
+						>
+							<div class="min-w-0">
+								<p class="truncate text-[11.5px] text-highlighted">
+									{{ model.spec.label }}
+									<span
+										v-if="isLanguagePick(model)"
+										class="ml-1.5 font-mono text-[9.5px] text-primary"
+										title="Hex adapts the recommended model to the listening language"
+									>recommended for {{ whisperSetup.language }}</span>
+									<span
+										v-if="model.spec.selfDetecting"
+										class="ml-1.5 font-mono text-[9.5px] text-dimmed"
+										title="The model detects the spoken language itself — no hint needed"
+									>· auto-detect</span>
+									<UBadge
+										v-if="model.status === 'downloading'"
+										color="warning"
+										variant="subtle"
+										size="sm"
+									>
+										{{ downloadPct() }}%
+									</UBadge>
+								</p>
+								<p class="truncate font-mono text-[10px] text-dimmed">
+									{{ model.spec.languagesNote }} · {{ model.spec.diskNote }} · {{ model.spec.ramNote }} · {{ model.spec.note }}
+									<span v-if="model.status === 'found'"> · found in HF cache</span>
+									<span v-else-if="model.status === 'system'"> · system engine</span>
+									<span v-else-if="model.status === 'corrupt'" class="text-warning"> · {{ model.error }}</span>
+									<span v-else-if="model.status === 'partial'" class="text-muted"> · {{ formatMb(model.partialBytes ?? 0) }} partial</span>
+								</p>
+							</div>
+							<UButton
+								v-if="model.status === 'missing' || model.status === 'partial' || model.status === 'corrupt'"
+								size="xs"
+								color="neutral"
+								variant="soft"
+								label="Install"
+								:disabled="installBusy"
+								@click="mutateInstallModel(model.spec.id)"
+							/>
+							<UButton
+								v-else-if="model.status === 'verified'"
+								size="xs"
+								color="neutral"
+								variant="ghost"
+								label="Remove"
+								@click="mutateRemoveModel(model.spec.id)"
+							/>
+						</div>
+					</div>
+
+					<div class="mt-2.5 flex items-center gap-2">
+						<UButton
+							size="xs"
+							color="primary"
+							variant="soft"
+							label="Start server"
+							:disabled="!canStartServer"
+							:loading="startServerPending"
+							@click="mutateStartServer()"
+						/>
+						<UButton
+							v-if="whisperSetup.server.running"
+							size="xs"
+							color="neutral"
+							variant="ghost"
+							label="Stop"
+							@click="mutateStopServer()"
+						/>
+						<p class="min-w-0 flex-1 truncate font-mono text-[10px] text-dimmed">{{ whisperSetup.server.detail }}</p>
+					</div>
+					<p
+						v-if="whisperSetup.lastInstallError"
+						class="mt-1 truncate font-mono text-[10px] text-warning"
+					>
+						last install error · {{ whisperSetup.lastInstallError.modelId }}: {{ whisperSetup.lastInstallError.error }}
+					</p>
+				</div>
 			</div>
 
 			<UFormField

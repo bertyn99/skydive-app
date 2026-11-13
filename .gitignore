@@ -16,6 +16,10 @@ dist-ssr
 # Local dev media (lets-play downloads, never committed)
 media
 
+# Local voice models + whisper.cpp build (whisper setup, never committed)
+.models
+.whisper.cpp
+
 # Environment variables
 .env
 
