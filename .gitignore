@@ -20,6 +20,10 @@ media
 .models
 .whisper.cpp
 
+# Agent skills (installed per-machine, not project source)
+.agents/
+skills-lock.json
+
 # Environment variables
 .env
 

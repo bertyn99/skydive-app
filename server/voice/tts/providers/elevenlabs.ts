@@ -73,7 +73,7 @@ export interface ElevenLabsTtsResult {
 
 /**
  * Synthesize speech with ElevenLabs. Throws on missing key, HTTP error,
- * timeout or malformed response — the TTS seam (server/utils/tts.ts)
+ * timeout or malformed response — the TTS seam (server/voice/tts/service.ts)
  * handles the fallback chain and provenance.
  */
 export async function textToSpeechElevenLabs(

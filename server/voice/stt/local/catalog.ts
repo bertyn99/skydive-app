@@ -27,7 +27,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { WHISPER_STT_LANGUAGE } from "./voice-config";
+import { listeningLanguage } from "../../config";
 
 const MODELS_DIR = process.env.SKYDIVE_MODELS_DIR ?? path.resolve(process.cwd(), ".models");
 const DOWNLOAD_TIMEOUT_MS = Number(process.env.WHISPER_DOWNLOAD_TIMEOUT_MS ?? 900_000);
@@ -167,10 +167,7 @@ export function recommendedModelIdForLanguage(language: string): string {
 	return "base";
 }
 
-/** The app's listening language (drives the per-language recommendation). */
-export function listeningLanguage(): string {
-	return WHISPER_STT_LANGUAGE;
-}
+// The listening language helper lives in ../config (single source of truth).
 
 // --- Status reports -----------------------------------------------------------
 

@@ -1,9 +1,16 @@
 import { defineEventHandler } from "h3";
-import { probePiper } from "../../utils/piper-tts";
-import { probeWhisper } from "../../utils/whisper-stt";
+import { probeWhisper } from "../../voice";
+import {
+	TTS_ENGINE_IDS,
+	probeTtsEngine,
+	ttsEngineLabel,
+	type TtsEngineId,
+} from "../../voice";
 
 export interface EngineAvailability {
 	engine: string;
+	/** Human label from the TTS service registry. */
+	label?: string;
 	available: boolean;
 	detail: string;
 	/** Setup steps offered in the dashboard when unavailable. */
@@ -29,15 +36,27 @@ function probeApiKeyEngine(
 	};
 }
 
+async function probeTtsEntry(id: TtsEngineId): Promise<EngineAvailability> {
+	const probe = await probeTtsEngine(id);
+	return {
+		engine: id,
+		label: ttsEngineLabel(id),
+		available: probe.available,
+		detail: probe.detail,
+		setupHint: probe.setupHint,
+	};
+}
+
 export default defineEventHandler(async (): Promise<EnginesAvailability> => {
-	const [piper, whisper] = await Promise.all([probePiper(), probeWhisper()]);
+	// The TTS list comes straight from the service registry — platform-gated
+	// engines (voipi-macos) simply probe unavailable off their platform.
+	const [whisper, tts] = await Promise.all([
+		probeWhisper(),
+		Promise.all(TTS_ENGINE_IDS.map((id) => probeTtsEntry(id))),
+	]);
 
 	return {
-		tts: [
-			probeApiKeyEngine("elevenlabs", "ELEVENLABS_API_KEY", "cloud TTS"),
-			probeApiKeyEngine("mistral", "MISTRAL_API_KEY", "cloud TTS"),
-			{ engine: "piper-local", ...piper },
-		],
+		tts,
 		stt: [
 			probeApiKeyEngine("elevenlabs", "ELEVENLABS_API_KEY", "cloud STT"),
 			{ engine: "whisper-local", ...whisper },

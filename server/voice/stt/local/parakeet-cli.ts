@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { access, constants, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { bestInstalledModel } from "./whisper-models";
+import { bestInstalledModel } from "./catalog";
 
 const PARAKEET_BINARY = process.env.WHISPER_PARAKEET_BINARY
 	?? path.join(process.cwd(), ".whisper.cpp", "build", "bin", "parakeet-cli");

@@ -82,7 +82,8 @@ const sttItems = computed(() => markItems(STT_ENGINE_OPTIONS, sttAvailability.va
 
 // Copyable setup commands for local engines (cloud engines only need env vars).
 const SETUP_COMMANDS: Record<string, string> = {
-	"piper-local": "pip install piper-tts",
+	// piper-local auto-installs (binary + voice) on first use via voipi.
+	"piper-local": "PIPER_VOICE=fr_FR-mls-medium  # optional override — auto-installs on first use",
 	// The whisper setup card below installs the model and starts the server;
 	// only the binary still needs a one-time local build.
 	"whisper-local": "pnpm setup:whisper",

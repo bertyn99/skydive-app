@@ -14,8 +14,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { access, constants } from "node:fs/promises";
 import path from "node:path";
-import { resolveVerifiedModelPath } from "./whisper-models";
-import { WHISPER_STT_URL } from "./voice-config";
+import { spawnWorks } from "../../_spawn";
+import { resolveVerifiedModelPath } from "./catalog";
+import { WHISPER_STT_URL } from "../../config";
 
 const START_TIMEOUT_MS = Number(process.env.WHISPER_SERVER_START_TIMEOUT_MS ?? 30_000);
 const REPO_ROOT = process.cwd();
@@ -80,24 +81,13 @@ const FFMPEG_FALLBACKS = [
 	"/usr/bin/ffmpeg",
 ];
 
-function tryFfmpeg(bin: string, args: string[]): Promise<boolean> {
-	return new Promise((resolve) => {
-		const child = spawn(bin, args, { stdio: "ignore" });
-		child.once("error", () => resolve(false));
-		child.once("spawn", () => {
-			child.kill("SIGKILL");
-			resolve(true);
-		});
-	});
-}
-
 export async function probeFfmpeg(): Promise<FfmpegProbe> {
-	if (await tryFfmpeg("ffmpeg", ["-version"])) {
+	if (await spawnWorks("ffmpeg", ["-version"])) {
 		return { available: true, detail: "ffmpeg on PATH (webm→wav conversion OK)" };
 	}
 	for (const candidate of FFMPEG_FALLBACKS) {
 		if (candidate.startsWith("${")) continue; // HOME unset
-		if (await tryFfmpeg(candidate, ["-version"])) {
+		if (await spawnWorks(candidate, ["-version"])) {
 			return {
 				available: true,
 				path: candidate,

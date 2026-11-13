@@ -1,5 +1,5 @@
 // Mistral Voxtral TTS (cloud). Kept as a pure engine: the seam in
-// server/utils/tts.ts owns the fallback chain and provenance.
+// server/voice/tts/service.ts owns the fallback chain and provenance.
 const MISTRAL_TTS_MODEL_ID = process.env.MISTRAL_TTS_MODEL_ID ?? "voxtral-mini-tts-2603";
 const MISTRAL_TTS_VOICE_ID = process.env.MISTRAL_TTS_VOICE_ID ?? "fr_marie_neutral";
 const MISTRAL_TTS_TIMEOUT_MS = Number(process.env.MISTRAL_TTS_TIMEOUT_MS ?? 8000);
@@ -7,7 +7,7 @@ const MISTRAL_TTS_TIMEOUT_MS = Number(process.env.MISTRAL_TTS_TIMEOUT_MS ?? 8000
 /**
  * Synthesize speech with Mistral and return base64-encoded MP3 audio.
  * Throws on missing key, HTTP error, timeout or malformed response —
- * the TTS seam (server/utils/tts.ts) handles the fallback chain.
+ * the TTS seam (server/voice/tts/service.ts) handles the fallback chain.
  */
 export async function textToSpeechMistral(text: string): Promise<string> {
 	const apiKey = process.env.MISTRAL_API_KEY;

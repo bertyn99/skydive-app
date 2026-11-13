@@ -24,14 +24,13 @@ import {
 	type SttEngineId,
 	resolveSttEngine,
 	transcribeSpeech,
-} from "./stt";
-import { isSilent } from "./silence";
-import {
+	defaultTtsEngine,
 	isTtsEngineId,
-	type TtsEngineId,
 	resolveTtsEngine,
 	synthesizeSpeech,
-} from "./tts";
+	type TtsEngineId,
+} from "../voice";
+import { isSilent } from "./silence";
 import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { SkyrimFileConnector } from "./skyrim-file-connector";
@@ -73,7 +72,7 @@ const state: EngineState = {
 	systemPrompt: "",
 	pipeline: resolvePipeline(process.env.PIPELINE, "fused"),
 	gateEngine: resolveGateEngine(process.env.GATE_ENGINE, "gemini"),
-	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, "elevenlabs"),
+	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, defaultTtsEngine()),
 	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "elevenlabs"),
 	clients: new Set(),
 	abortController: null,

@@ -10,27 +10,20 @@
 // available, so installing a model from the dashboard is enough — no manual
 // server start required.
 //
-// Config: see ./voice-config (WHISPER_STT_URL, WHISPER_STT_LANGUAGE,
+// Config: see ../config (WHISPER_STT_URL, WHISPER_STT_LANGUAGE,
 // WHISPER_STT_TIMEOUT_MS).
+import { type EngineProbe } from "../../config";
 import {
 	bestInstalledModel,
 	type WhisperModelSpec,
-} from "./whisper-models";
+} from "./catalog";
 import { probeParakeetBinary, transcribeParakeetLocal } from "./parakeet-cli";
-import { startWhisperServer, whisperServerStatus } from "./whisper-server";import {
+import { startWhisperServer, whisperServerStatus } from "./whisper-sidecar";
+import {
 	WHISPER_STT_LANGUAGE,
 	WHISPER_STT_TIMEOUT_MS,
 	WHISPER_STT_URL,
-} from "./voice-config";
-
-export { WHISPER_STT_LANGUAGE, WHISPER_STT_URL };
-
-export interface EngineProbe {
-	available: boolean;
-	detail: string;
-	/** Setup steps shown in the dashboard when the engine is unavailable. */
-	setupHint?: string;
-}
+} from "../../config";
 
 /** Which local runner would handle the next transcription, and with what. */
 export async function activeLocalRunner(): Promise<{
@@ -111,7 +104,7 @@ async function transcribeWithWhisperServer(
 
 /**
  * Transcribe audio locally, routing to the best installed runner. Throws
- * when no local runner can work — the STT seam (server/utils/stt.ts) falls
+ * when no local runner can work — the STT seam (server/voice/stt/service.ts) falls
  * back to the cloud engine and records provenance.
  */
 export async function transcribeWhisperLocal(

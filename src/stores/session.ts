@@ -53,7 +53,10 @@ export const GATE_ENGINE_OPTIONS = [
 export const TTS_ENGINE_OPTIONS = [
 	{ label: "ElevenLabs (cloud)", value: "elevenlabs" },
 	{ label: "Mistral Voxtral (cloud)", value: "mistral" },
-	{ label: "Piper (local, fr_FR)", value: "piper-local" },
+	{ label: "Piper (local, via VoiPi)", value: "piper-local" },
+	{ label: "macOS say (local)", value: "voipi-macos" },
+	{ label: "Google TTS (online, keyless)", value: "voipi-google" },
+	{ label: "Edge TTS (online, keyless)", value: "voipi-edge" },
 ] as const;
 
 export const STT_ENGINE_OPTIONS = [

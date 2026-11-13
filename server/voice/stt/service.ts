@@ -1,5 +1,5 @@
-import { transcribeAudio } from "./elevenlabs-stt";
-import { transcribeWhisperLocal } from "./whisper-stt";
+import { transcribeAudio } from "./providers/elevenlabs";
+import { transcribeWhisperLocal } from "./local/router";
 
 /**
  * STT engine seam (LIFT-PLAN Stage 4): elevenlabs (cloud) vs whisper-local

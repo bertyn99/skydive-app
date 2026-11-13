@@ -1,6 +1,6 @@
 import { defineEventHandler } from "h3";
-import { probeFfmpeg, resolveWhisperServerBinary, whisperServerStatus } from "../../utils/whisper-server";
-import { activeLocalRunner } from "../../utils/whisper-stt";
+import { probeFfmpeg, resolveWhisperServerBinary, whisperServerStatus } from "../../voice";
+import { activeLocalRunner } from "../../voice";
 import {
 	listWhisperModels,
 	listeningLanguage,
@@ -10,7 +10,7 @@ import {
 	whisperLastInstallError,
 	type WhisperInstallState,
 	type WhisperModelReport,
-} from "../../utils/whisper-models";
+} from "../../voice";
 
 export interface WhisperBinaryPayload {
 	available: boolean;

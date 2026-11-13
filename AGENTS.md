@@ -161,9 +161,21 @@ skydive-app/
 │   ├── utils/             # Framework-free logic (capture, voice, ws-binary)
 │   └── assets/            # Static assets
 ├── server/
-│   ├── api/               # Nitro API routes (file-based)
+│   ├── voice/             # voice module (public API: index.ts)
+│   │   ├── config.ts      #   shared env, probe shape, language→voice helper
+│   │   ├── tts/
+│   │   │   ├── service.ts #   registry + per-platform fallback chains
+│   │   │   └── providers/ #   elevenlabs, mistral, piper, google, edge,
+│   │   │                  #   say.darwin.ts (platform-suffixed files)
+│   │   └── stt/
+│   │       ├── service.ts #   transcribe seam (cloud ↔ local)
+│   │       ├── providers/ #   elevenlabs (cloud)
+│   │       └── local/     #   catalog (pinned HF models), whisper-sidecar,
+│   │                      #   parakeet-cli, router
+│   ├── api/               # Nitro API routes (file-based, thin)
 │   ├── routes/            # Nitro routes incl. /_ws WebSocket
-│   └── utils/             # Engine, gemini, TTS/STT, protocol, connectors
+│   └── utils/             # cross-cutting only: engine, gate, gemini,
+│                          #   protocol, reflex, capture, silence, connectors
 ├── public/                # Static files served at root
 ├── docs/adr/              # Architecture decision records
 ├── vite.config.ts         # Vite config (Vue + Nuxt UI + Nitro plugins)
