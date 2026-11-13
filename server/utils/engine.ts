@@ -2,6 +2,7 @@ import type { Peer } from "crossws";
 import { transcribeAudio } from "./elevenlabs-stt";
 import { clearHistory, describeVideo } from "./gemini";
 import { textToSpeech } from "./mistral-tts";
+import { isSilent } from "./silence";
 import type { GameStateData, GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { SkyrimFileConnector } from "./skyrim-file-connector";
@@ -73,22 +74,6 @@ type PendingClip = {
 // Keep processing strictly sequential, but cap the queue to one "latest" clip.
 let clipWorkerRunning = false;
 let pendingClip: PendingClip | null = null;
-
-const SILENCE_MARKERS = [
-	"...",
-	"rien à signaler",
-	"rien à signaler.",
-	"zone calme",
-	"zone calme.",
-];
-
-function isSilent(text: string): boolean {
-	const trimmed = text.trim().toLowerCase();
-	if (trimmed === "" || trimmed.replace(/\./g, "").trim() === "") return true;
-	if (SILENCE_MARKERS.includes(trimmed)) return true;
-	if (trimmed.replace(/[.\s]/g, "").length < 3) return true;
-	return false;
-}
 
 function isCorruptedVideoError(message: string): boolean {
 	const normalized = message.toLowerCase();

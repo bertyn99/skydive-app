@@ -1,0 +1,154 @@
+{
+	"id": "run-2026-11-13T00-08-33-518Z",
+	"startedAt": 1794528513518,
+	"finishedAt": 1794528520709,
+	"status": "done",
+	"engine": "gemini-3.1-flash-lite-preview",
+	"summary": {
+		"total": 2,
+		"passed": 2,
+		"failed": 0
+	},
+	"results": [
+		{
+			"situationId": "first-contact",
+			"passed": true,
+			"humanVerdict": "agree",
+			"humanNote": "clean run",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Début du jeu. Zone enneigée.",
+					"spoken": true,
+					"relevance": 5,
+					"actions": [],
+					"latencyMs": 1651,
+					"checks": [
+						{
+							"name": "spoken",
+							"passed": true,
+							"detail": "spoke as expected"
+						},
+						{
+							"name": "french",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"passed": true
+						},
+						{
+							"name": "relevanceBand",
+							"passed": true,
+							"detail": "relevance 5 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass"
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1673,
+					"checks": [
+						{
+							"name": "spoken",
+							"passed": true,
+							"detail": "stayed silent as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"passed": true,
+							"detail": "relevance 0 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass"
+				}
+			]
+		},
+		{
+			"situationId": "second-scene",
+			"passed": true,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Effet magique actif. Prêt au combat.",
+					"spoken": true,
+					"relevance": 5,
+					"actions": [],
+					"latencyMs": 2365,
+					"checks": [
+						{
+							"name": "spoken",
+							"passed": true,
+							"detail": "spoke as expected"
+						},
+						{
+							"name": "french",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"passed": true
+						},
+						{
+							"name": "relevanceBand",
+							"passed": true,
+							"detail": "relevance 5 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass"
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1466,
+					"checks": [
+						{
+							"name": "spoken",
+							"passed": true,
+							"detail": "stayed silent as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"passed": true,
+							"detail": "relevance 0 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass"
+				}
+			]
+		}
+	]
+}

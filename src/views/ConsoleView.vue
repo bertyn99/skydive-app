@@ -7,6 +7,7 @@ import ScreenViewer from "../components/ScreenViewer.vue";
 import ConfigPanel from "../components/ConfigPanel.vue";
 import TelemetryPanel from "../components/TelemetryPanel.vue";
 import GameStatePanel from "../components/GameStatePanel.vue";
+import EvalsPanel from "../components/EvalsPanel.vue";
 
 const session = useSessionStore();
 const { serverConnected, source } = storeToRefs(session);
@@ -67,14 +68,14 @@ onMounted(() => {
 			<StatusBar />
 
 			<main
-				class="grid min-h-0 flex-1 gap-px bg-(--ui-border-accented)
-					max-lg:grid-cols-1 max-lg:grid-rows-[minmax(320px,55dvh)_auto_auto_auto]
-					lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1.55fr)_minmax(0,1fr)]"
+				class="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto bg-(--ui-border-accented)
+					lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1.55fr)_minmax(0,1fr)_auto] lg:overflow-hidden"
 			>
-				<ScreenViewer />
-				<ConfigPanel />
-				<TelemetryPanel />
-				<GameStatePanel />
+				<ScreenViewer class="max-lg:min-h-[55dvh] max-lg:shrink-0" />
+				<ConfigPanel class="max-lg:shrink-0" />
+				<TelemetryPanel class="max-lg:shrink-0" />
+				<GameStatePanel class="max-lg:shrink-0" />
+				<EvalsPanel class="max-lg:shrink-0 lg:col-span-2" />
 			</main>
 		</UDashboardPanel>
 	</UDashboardGroup>

@@ -1,6 +1,7 @@
 import { google } from "@ai-sdk/google";
 import { Output, type SystemModelMessage, generateText } from "ai";
 import { z } from "zod/v4";
+import { isSilent } from "./silence";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { parseSkyrimState } from "./skyrim-state-parser";
 
@@ -279,7 +280,8 @@ export type GeminiResponse = z.infer<typeof responseSchema>;
 
 const MAX_HISTORY = 10;
 const observations: string[] = [];
-const GEMINI_MODEL = google("gemini-3.1-flash-lite-preview");
+export const GEMINI_MODEL_ID = "gemini-3.1-flash-lite-preview";
+const GEMINI_MODEL = google(GEMINI_MODEL_ID);
 const GEMINI_OUTPUT = Output.object({
 	schema: responseSchema,
 	name: "skyrim_live_assistance",
@@ -312,6 +314,7 @@ export async function describeVideo(
 	systemPrompt?: string,
 	connector?: SkyrimConnector,
 	userQuestion?: string,
+	mediaType: string = "video/webm",
 ): Promise<{ response: GeminiResponse; isQuestion: boolean }> {
 	const question = userQuestion?.trim();
 	const isQuestion = !!question;
@@ -376,6 +379,9 @@ export async function describeVideo(
 		model: GEMINI_MODEL,
 		output: GEMINI_OUTPUT,
 		instructions: system,
+		// Cap pathological retry storms: a hung call must never stall the
+		// live clip worker (or an eval run) for minutes.
+		abortSignal: AbortSignal.timeout(120_000),
 		messages: [
 			{
 				role: "user",
@@ -383,7 +389,7 @@ export async function describeVideo(
 					{
 						type: "file",
 						data: videoBuffer,
-						mediaType: "video/webm",
+						mediaType,
 					},
 					{
 						type: "text",
@@ -397,4 +403,85 @@ export async function describeVideo(
 	if (output.observation) addObservationToHistory(output.observation, output.relevance);
 
 	return { response: output, isQuestion };
+}
+
+const judgeSchema = z.object({
+	score: z
+		.number()
+		.min(0)
+		.max(1)
+		.describe("Score de correction du comportement de l'assistant pour ce clip (0 = faux, 1 = parfait)."),
+	reason: z
+		.string()
+		.describe("Une phrase courte justifiant le score (en français)."),
+});
+
+export interface JudgeVerdict {
+	score: number;
+	correct: boolean;
+	reason: string;
+}
+
+/**
+ * LLM-as-judge (agentic-eval pattern): grades the assistant's behavior on a
+ * Situation by watching the same clip. Rubric: factual correctness vs the
+ * clip content (no hallucination), actionability for a blind player, and —
+ * for silence expectations — whether staying quiet was the right call.
+ * The judge never mutates the observation history and never flips the
+ * deterministic verdict; it informs the human arbiter.
+ */
+export async function judgeObservation(
+	videoBuffer: Buffer,
+	mediaType: string,
+	input: {
+		expectation: "speak" | "silence";
+		description: string;
+		observation: string | null;
+		relevance: number;
+	},
+): Promise<JudgeVerdict> {
+	const behavior = input.observation && !isSilent(input.observation)
+		? `L'assistant a parlé : « ${input.observation} » (pertinence ${input.relevance}/10).`
+		: `L'assistant est resté SILENCIEUX (pertinence ${input.relevance}/10).`;
+
+	const { output } = await generateText({
+		model: GEMINI_MODEL,
+		output: Output.object({ schema: judgeSchema, name: "skyguide_eval_judge" }),
+		instructions: [
+			{
+				role: "system",
+				content: `Tu es un juge d'évaluation pour SkyGuide, un assistant temps réel pour joueur aveugle de Skyrim.
+Tu regardes un clip de gameplay et tu grades le comportement de l'assistant.
+
+Comportement attendu : ${input.expectation === "speak" ? "PARLER (une observation courte et actionnable)" : "RESTER SILENCIEUX (rien d'important à ajouter)"}.
+Contexte du fixture : ${input.description}
+
+${behavior}
+
+Grille de notation :
+- Exactitude : l'observation correspond-elle au contenu VISIBLE du clip ? (halucination = score très bas)
+- Actionabilité : l'information est-elle utile MAINTENANT pour un joueur aveugle ?
+- Silence : si l'assistant s'est tu, était-ce le bon choix (rien de nouveau, rien d'urgent) ?
+- Une répétition d'information déjà connue doit être notée comme incorrecte.
+
+Retourne score (0-1) et reason (une phrase courte en français).`,
+			},
+		],
+		abortSignal: AbortSignal.timeout(120_000),
+		messages: [
+			{
+				role: "user",
+				content: [
+					{ type: "file", data: videoBuffer, mediaType },
+					{ type: "text", text: "Grade le comportement de l'assistant sur ce clip." },
+				],
+			},
+		],
+	});
+
+	return {
+		score: output.score,
+		correct: output.score >= 0.6,
+		reason: output.reason,
+	};
 }

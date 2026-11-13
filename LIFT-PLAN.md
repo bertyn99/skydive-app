@@ -27,16 +27,20 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
 - [x] Engine/server: clip path verified mod-context-optional (runtime test with a real
       lets-play file remains a manual step — YGG-231 note).
 
-## Stage 3 — Situations + Eval runner
+## Stage 3 — Situations + Eval runner — ✅ shipped
 
-- [ ] `situations/` dir: fixtures = webm clip + `situation.json` (id, description, mod context?,
-      expectation: speak|silence, relevanceBand?, expectedActions?, notes).
-- [ ] Eval runner: server route or script — runs each Situation through the real pipeline
-      (fresh observation history per Situation), deterministic checks (spoke/silence, French,
-      ≤2 sentences, relevance band, action types) + human verdict slot.
-- [ ] Evals panel in dashboard: run suite, per-Situation result list, drift view across runs
-      (results saved to `situations/results/*.json`).
-- [ ] Silence discipline fixture type: same clip fed twice, expect SILENCE on the second pass.
+- [x] `situations/` dir: fixtures = clip + `situation.json` (id, description, mod context?,
+      expectation: speak|silence, relevanceBand?, maxSentences?, expectedActions?, notes,
+      repeat? for silence discipline). `scripts/slice-clip.ts` cuts fixture clips from big files.
+- [x] Eval runner: `POST /api/evals/run` (async, one run at a time) — runs each Situation
+      through the real pipeline (`describeVideo`, fresh observation history per Situation),
+      deterministic checks (spoke/silence via pipeline semantics, French lexicon, ≤2 sentences,
+      relevance band, action types) + human verdict slot. 120s timeout per model call.
+- [x] Evals panel in dashboard (TanStack Vue Query): run suite, per-Situation result cards
+      (checks, observations, latency), human verdict buttons, drift view across runs
+      (results persisted to `situations/results/*.json`).
+- [x] Silence discipline fixture type: `repeat: { expectation }` — same clip fed twice,
+      history retained, expect SILENCE on the second pass (verified live).
 
 ## Stage 4 — Engine seams + provenance
 

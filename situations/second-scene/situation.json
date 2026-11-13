@@ -1,0 +1,13 @@
+{
+	"id": "second-scene",
+	"description": "Second distinct scene from the same lets-play (10s clip), run with a fresh observation history. Speak once on first view; the replay must stay silent.",
+	"clip": "clip.mp4",
+	"modContext": null,
+	"expectation": "speak",
+	"relevanceBand": [4, 10],
+	"expectedActions": [],
+	"notes": "Seed fixture: structural expectation. Silence-discipline replay covers YGG-235.",
+	"repeat": {
+		"expectation": "silence"
+	}
+}

@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     ConfigPanel: typeof import('./src/components/ConfigPanel.vue')['default']
+    EvalsPanel: typeof import('./src/components/EvalsPanel.vue')['default']
     GameStatePanel: typeof import('./src/components/GameStatePanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
@@ -21,6 +22,7 @@ declare module 'vue' {
     UApp: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/App.vue')['default']
     UBadge: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Badge.vue')['default']
     UButton: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Button.vue')['default']
+    UCheckbox: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Checkbox.vue')['default']
     UDashboardGroup: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardGroup.vue')['default']
     UDashboardNavbar: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardNavbar.vue')['default']
     UDashboardPanel: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']

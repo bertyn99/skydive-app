@@ -1,0 +1,205 @@
+{
+	"id": "run-2026-11-13T00-21-03-897Z",
+	"startedAt": 1794529263897,
+	"finishedAt": 1794529275576,
+	"status": "done",
+	"engine": "gemini-3.1-flash-lite-preview",
+	"judge": true,
+	"summary": {
+		"total": 2,
+		"passed": 0,
+		"failed": 2
+	},
+	"results": [
+		{
+			"situationId": "first-contact",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Cinématique de jeu. Aucune action possible.",
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1567,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "expected an observation, got silence"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": false,
+							"detail": "relevance 0 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "fail",
+					"judge": {
+						"score": 0.2,
+						"correct": false,
+						"reason": "L'assistant a identifié la cinématique, mais l'observation est trop générique et manque d'intérêt descriptif pour le joueur."
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": "Environnement enneigé, extérieur. Avancez vers la lumière.",
+					"spoken": true,
+					"relevance": 5,
+					"actions": [
+						"move_forward"
+					],
+					"latencyMs": 1546,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "expected silence, got an observation"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": false,
+							"detail": "relevance 5 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": false,
+							"detail": "expected no actions, got: move_forward"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "fail",
+					"judge": {
+						"score": 0.3,
+						"correct": false,
+						"reason": "L'observation est imprécise et redondante, l'assistant aurait dû rester silencieux car il s'agit d'une scène cinématique d'introduction."
+					}
+				}
+			]
+		},
+		{
+			"situationId": "second-scene",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Vous avez survécu à l'attaque. Soignez-vous maintenant.",
+					"spoken": true,
+					"relevance": 8,
+					"actions": [
+						"drink_potion"
+					],
+					"latencyMs": 1415,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "spoke as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": true,
+							"detail": "relevance 8 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": false,
+							"detail": "expected no actions, got: drink_potion"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "fail",
+					"judge": {
+						"score": 0.5,
+						"correct": false,
+						"reason": "L'assistant a identifié correctement l'état du joueur, mais son message est générique et manque de précision sur l'environnement immédiat."
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1332,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "stayed silent as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": true,
+							"detail": "relevance 0 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant a fait le choix correct de rester silencieux car aucune information nouvelle ou critique n'était nécessaire dans cette séquence."
+					}
+				}
+			]
+		}
+	]
+}
