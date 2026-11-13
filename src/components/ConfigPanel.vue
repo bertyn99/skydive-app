@@ -15,10 +15,98 @@ interface EngineConfig {
 }
 
 const session = useSessionStore();
-const { isCapturing, captureInterval, serverConnected, source, ttsEngine, sttEngine } =
-	storeToRefs(session);
+const {
+	isCapturing,
+	captureInterval,
+	serverConnected,
+	source,
+	ttsEngine,
+	sttEngine,
+} = storeToRefs(session);
 const queryClient = useQueryClient();
 const toast = useToast();
+
+// --- Local engine availability (Stage 4 seams) ---------------------------
+// Proposes setup steps when a local engine is selected but not detected.
+
+interface EngineAvailability {
+	engine: string;
+	available: boolean;
+	detail: string;
+	setupHint?: string;
+}
+
+async function fetchAvailability() {
+	const res = await fetch("/api/engines/availability");
+	if (!res.ok) throw new Error(`Availability check failed (${res.status})`);
+	return res.json() as Promise<{ tts: EngineAvailability[]; stt: EngineAvailability[] }>;
+}
+
+const availabilityQuery = useQuery({
+	queryKey: ["engines-availability"],
+	queryFn: fetchAvailability,
+});
+
+function availabilityFor(
+	list: EngineAvailability[] | undefined,
+	engine: string,
+): EngineAvailability | undefined {
+	return list?.find((entry) => entry.engine === engine);
+}
+
+const ttsAvailability = computed(() => availabilityQuery.data.value?.tts);
+const sttAvailability = computed(() => availabilityQuery.data.value?.stt);
+const ttsStatus = computed(() => availabilityFor(ttsAvailability.value, ttsEngine.value));
+const sttStatus = computed(() => availabilityFor(sttAvailability.value, sttEngine.value));
+
+// Dropdown options get a "not detected" mark so the operator sees the state
+// before selecting.
+function markItems(
+	options: readonly { label: string; value: string }[],
+	list: EngineAvailability[] | undefined,
+) {
+	return options.map((option) => {
+		const status = availabilityFor(list, option.value);
+		return status && !status.available
+			? { ...option, label: `${option.label} · not detected` }
+			: option;
+	});
+}
+
+const ttsItems = computed(() => markItems(TTS_ENGINE_OPTIONS, ttsAvailability.value));
+const sttItems = computed(() => markItems(STT_ENGINE_OPTIONS, sttAvailability.value));
+
+// Copyable setup commands for local engines (cloud engines only need env vars).
+const SETUP_COMMANDS: Record<string, string> = {
+	"piper-local": "pip install piper-tts",
+	"whisper-local": [
+		"git clone https://github.com/ggml-org/whisper.cpp",
+		"cmake -B whisper.cpp/build -S whisper.cpp",
+		"cmake --build whisper.cpp/build --target whisper-server",
+		"sh whisper.cpp/models/download-ggml-model.sh base",
+		"./build/bin/whisper-server -m models/ggml-base.bin --port 8080",
+	].join("\n"),
+};
+
+function setupCommand(engine: string): string | undefined {
+	return SETUP_COMMANDS[engine];
+}
+
+async function copySetup(kind: "tts" | "stt") {
+	const engine = kind === "tts" ? ttsEngine.value : sttEngine.value;
+	const command = SETUP_COMMANDS[engine];
+	if (!command) return;
+	try {
+		await navigator.clipboard.writeText(command);
+		toast.add({ title: "Setup command copied", color: "success" });
+	} catch (err) {
+		toast.add({
+			title: "Copy failed",
+			description: err instanceof Error ? err.message : String(err),
+			color: "error",
+		});
+	}
+}
 
 // Current server-side engine config, refreshed over REST.
 const {
@@ -152,13 +240,39 @@ function save() {
 				>
 					<USelect
 						:model-value="ttsEngine"
-						:items="[...TTS_ENGINE_OPTIONS]"
+						:items="ttsItems"
 						:disabled="!serverConnected"
 						size="sm"
 						class="font-mono text-xs"
 						aria-label="Text-to-speech engine"
 						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('tts', v) }"
 					/>
+					<p
+						v-if="ttsStatus"
+						class="font-mono text-[10px]"
+						:class="ttsStatus.available ? 'text-success/80' : 'text-warning'"
+					>
+						{{ ttsStatus.available ? "✓ ready" : "✗ not detected" }}
+					</p>
+					<div
+						v-if="ttsStatus && !ttsStatus.available"
+						class="rounded-md border border-warning/40 bg-warning/5 p-2.5"
+					>
+						<p class="text-[11.5px] leading-relaxed text-muted">
+							{{ ttsStatus.detail }}<span v-if="ttsStatus.setupHint">. {{ ttsStatus.setupHint }}</span>
+						</p>
+						<div v-if="setupCommand(ttsEngine)" class="mt-2 flex items-center gap-2">
+							<pre class="min-w-0 flex-1 overflow-x-auto rounded-sm bg-elevated px-2 py-1.5 font-mono text-[10.5px] text-highlighted">{{ setupCommand(ttsEngine) }}</pre>
+							<UButton
+								icon="i-lucide-copy"
+								size="xs"
+								color="neutral"
+								variant="soft"
+								aria-label="Copy TTS setup command"
+								@click="copySetup('tts')"
+							/>
+						</div>
+					</div>
 				</UFormField>
 
 				<UFormField
@@ -168,13 +282,40 @@ function save() {
 				>
 					<USelect
 						:model-value="sttEngine"
-						:items="[...STT_ENGINE_OPTIONS]"
+						:items="sttItems"
 						:disabled="!serverConnected"
 						size="sm"
 						class="font-mono text-xs"
 						aria-label="Speech-to-text engine"
 						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('stt', v) }"
 					/>
+					<p
+						v-if="sttStatus"
+						class="font-mono text-[10px]"
+						:class="sttStatus.available ? 'text-success/80' : 'text-warning'"
+					>
+						{{ sttStatus.available ? "✓ ready" : "✗ not detected" }}
+					</p>
+					<div
+						v-if="sttStatus && !sttStatus.available"
+						class="rounded-md border border-warning/40 bg-warning/5 p-2.5"
+					>
+						<p class="text-[11.5px] leading-relaxed text-muted">
+							{{ sttStatus.detail }}<span v-if="sttStatus.setupHint">. {{ sttStatus.setupHint }}</span>
+						</p>
+						<div v-if="setupCommand(sttEngine)" class="mt-2 flex flex-col gap-1.5">
+							<pre class="overflow-x-auto rounded-sm bg-elevated px-2 py-1.5 font-mono text-[10.5px] leading-relaxed text-highlighted">{{ setupCommand(sttEngine) }}</pre>
+							<UButton
+								icon="i-lucide-copy"
+								size="xs"
+								color="neutral"
+								variant="soft"
+								label="Copy setup commands"
+								block
+								@click="copySetup('stt')"
+							/>
+						</div>
+					</div>
 				</UFormField>
 			</div>
 

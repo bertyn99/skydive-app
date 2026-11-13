@@ -43,11 +43,11 @@ onMounted(() => {
 			:ui="{ footer: 'border-t border-default' }"
 		>
 			<template #header="{ collapsed }">
-				<div v-if="!collapsed" class="flex items-baseline gap-2.5">
-					<span class="text-base font-semibold tracking-tight text-highlighted">
+				<div v-if="!collapsed" class="flex flex-col gap-0.5">
+					<span class="text-base font-semibold leading-tight tracking-tight text-highlighted">
 						SkyGuide
 					</span>
-					<span class="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed sm:inline">
+					<span class="font-mono text-[10px] uppercase tracking-[0.14em] text-dimmed">
 						Operator Console
 					</span>
 				</div>

@@ -11,6 +11,28 @@ const WHISPER_STT_LANGUAGE = process.env.WHISPER_STT_LANGUAGE ?? "fr";
 const WHISPER_STT_TIMEOUT_MS = Number(process.env.WHISPER_STT_TIMEOUT_MS ?? 8000);
 
 /**
+ * Availability probe for the dashboard: is anything answering at the
+ * configured whisper URL? Any HTTP response counts (the server 404s on GET),
+ * only connection failures mean "not installed / not running".
+ */
+export async function probeWhisper(): Promise<EngineProbe> {
+	const origin = new URL(WHISPER_STT_URL).origin;
+	try {
+		await fetch(origin, {
+			method: "GET",
+			signal: AbortSignal.timeout(800),
+		});
+		return { available: true, detail: `server responding at ${origin}` };
+	} catch {
+		return {
+			available: false,
+			detail: `no server at ${origin}`,
+			setupHint: "Build and start the whisper.cpp server (see setup below the STT engine).",
+		};
+	}
+}
+
+/**
  * Transcribe audio with the local whisper server. Audio goes up as a
  * multipart `file` field (whisper.cpp /inference convention), JSON with a
  * `text` field comes back. Throws on connection failure, timeout or a

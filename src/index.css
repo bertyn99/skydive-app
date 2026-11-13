@@ -45,3 +45,92 @@
 		var(--ui-border) 25%
 	);
 }
+
+/* Stage idle radar — communicates "waiting for a source". Concentric rings
+   with a rotating sweep; hover raises intensity (feedback, not decoration). */
+.stage-radar {
+	position: relative;
+	width: 148px;
+	height: 148px;
+	display: grid;
+	place-items: center;
+}
+
+.stage-radar::before,
+.stage-radar::after {
+	content: "";
+	position: absolute;
+	border-radius: 9999px;
+	border: 1px solid var(--ui-border-accented);
+	transition: border-color 0.4s ease;
+}
+
+.stage-radar::before {
+	inset: 0;
+}
+
+.stage-radar::after {
+	inset: 30px;
+	border-color: var(--ui-border);
+}
+
+.stage-radar-sweep {
+	position: absolute;
+	inset: 0;
+	border-radius: 9999px;
+	background: conic-gradient(
+		from 0deg,
+		transparent 0deg,
+		color-mix(in oklab, var(--ui-primary) 16%, transparent) 55deg,
+		transparent 85deg
+	);
+	animation: radar-sweep 5s linear infinite;
+	opacity: 0.65;
+	transition: opacity 0.4s ease;
+}
+
+.stage-frame:hover .stage-radar-sweep {
+	opacity: 1;
+	animation-duration: 2.5s;
+}
+
+.stage-frame:hover .stage-radar::before {
+	border-color: color-mix(in oklab, var(--ui-primary) 40%, var(--ui-border-accented));
+}
+
+.stage-radar-icon {
+	position: relative;
+	z-index: 1;
+	color: var(--ui-text-dimmed);
+	transition:
+		color 0.4s ease,
+		transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stage-frame:hover .stage-radar-icon {
+	color: var(--ui-primary);
+	transform: translateY(-2px);
+}
+
+@keyframes radar-sweep {
+	to {
+		transform: rotate(1turn);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.stage-radar-sweep {
+		animation: none;
+		opacity: 0.35;
+	}
+
+	.stage-frame:hover .stage-radar-sweep {
+		animation: none;
+		opacity: 0.5;
+	}
+
+	.stage-radar-icon,
+	.stage-frame:hover .stage-radar-icon {
+		transform: none;
+	}
+}

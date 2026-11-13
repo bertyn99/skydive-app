@@ -123,16 +123,28 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 		<div class="flex flex-1 flex-col p-4">
 			<div
 				v-if="source === 'screen'"
-				class="stage-frame relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-default bg-[#05070b]"
+				class="stage-frame relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-lg border border-default bg-[#05070b] transition-colors duration-300 hover:border-(--ui-border-accented)"
 			>
 				<video v-if="mediaStream" ref="stageVideo" autoplay muted playsInline class="size-full object-contain" />
-				<UEmpty
-					v-else
-					:icon="isCapturing ? 'i-lucide-loader-circle' : 'i-lucide-video'"
-					:title="isCapturing ? 'Starting capture…' : 'No source'"
-					:description="isCapturing ? undefined : 'Start capture to feed the assistant from the screen.'"
-					class="text-muted"
-				/>
+				<div v-else-if="isCapturing" class="flex items-center gap-2 font-mono text-[11px] text-muted">
+					<UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+					Starting capture…
+				</div>
+				<!-- Idle: radar sweep communicates "waiting for a source" -->
+				<div v-else class="flex flex-col items-center gap-4 px-6 text-center">
+					<div class="stage-radar" aria-hidden="true">
+						<div class="stage-radar-sweep" />
+						<UIcon name="i-lucide-video" class="stage-radar-icon size-6" />
+					</div>
+					<div class="flex flex-col gap-1">
+						<p class="font-mono text-[11px] uppercase tracking-[0.16em] text-dimmed">
+							No source
+						</p>
+						<p class="max-w-[40ch] text-[13px] leading-relaxed text-muted">
+							Start capture to feed the assistant from the screen.
+						</p>
+					</div>
+				</div>
 				<div class="pointer-events-none absolute inset-x-3 top-2.5 z-20 flex items-center justify-between">
 					<UBadge
 						color="neutral"

@@ -35,7 +35,6 @@ declare module 'vue' {
     UIcon: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/vue/components/Icon.vue')['default']
     UNavigationMenu: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/NavigationMenu.vue')['default']
     USelect: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
-    USeparator: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Separator.vue')['default']
     USlider: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
     USwitch: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Switch.vue')['default']
     UTextarea: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Textarea.vue')['default']
