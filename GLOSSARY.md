@@ -45,8 +45,20 @@ The engine dispatch layer for voice I/O: TTS (`elevenlabs | mistral | piper-loca
 _Avoid_: provider switch, backend, adapter (unqualified)
 
 **Provenance**:
-The chip attached to every pipeline output naming what produced it: `GATE · model · latency · relevance` for observations, `TTS · engine · latency` for audio (plus `cached` / `↯ fallback-from`). Always names the engine that actually produced the output, not the one that was asked.
+The chip attached to every pipeline output naming what produced it: `GATE · engine · latency · relevance` for observations (plus `compose model · latency` when a gated decision was composed), `TTS · engine · latency` for audio (plus `cached` / `↯ fallback-from`). Always names the engine that actually produced the output, not the one that was asked.
 _Avoid_: metadata, telemetry fields (telemetry is reserved for mod context)
+
+**Gate** (System 1):
+The decision layer that answers "should the player hear something now?" per clip — shouldSpeak, isNew, relevance class, category, confidence — before any composer runs. Engines: `gemini` (decision-only cloud call), `local` (self-hosted OpenAI-compatible), `rules` (clip-blind mod-context heuristic). Its decision is measured by the eval matrix against the fused baseline.
+_Avoid_: filter (unqualified), moderator, System 1 alone (say Gate)
+
+**Reflex rules**:
+Canned 0ms callouts derived purely from mod context (death, critical health, melee contact). They bypass the Gate and composer because a model round-trip costs too much in a true emergency. Cooldown per rule prevents spam.
+_Avoid_: shortcuts, hardcoded responses
+
+**Matrix run**:
+An Eval run that scores the same Situations across several engines (fused baseline, gate engines), producing per-engine scorecards: accuracy, speak recall, silence precision, latency, confidence calibration. The Gate ships only when the matrix says it beats or matches the fused baseline.
+_Avoid_: A/B test, comparison run
 _Avoid_: benchmark, CI test
 
 **Reflex**:

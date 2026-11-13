@@ -76,17 +76,40 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
       (single-page grid had a fixed row map for 5 panels); each page now owns
       its own overflow, so panels cannot overlap at any width.
 
-## Stage 5 — Decision-model Gate (System 1)
+## Stage 5 — Decision-model Gate (System 1) — ✅ shipped (gemini + rules + local adapter)
 
-- [ ] Gate module: `experimental_decide()` per clip — shouldSpeak (boolean), isNew (boolean),
-      relevance (score: silence/minor/useful/critical), category (choice: danger/interaction/
-      navigation/change/question). State = mod context JSON + observation history + clip frames.
-- [ ] Escalation policy: calibrated confidence thresholds decide speak-now / compose / escalate
-      to cloud; configurable.
-- [ ] Reflex rules on mod context (0ms callouts bypass the Gate for true emergencies).
-- [ ] Eval runner gains an engines matrix: same Situations × {gemini-gate, clef-flash-gate,
-      rules} → accuracy + calibration report. The Gate ships only when evals say it beats or
-      matches the current Gemini path.
+- [x] Gate module (`server/utils/gate.ts`): `experimental_decide()` per clip —
+      shouldSpeak, isNew, relevance (silence/minor/useful/critical), category
+      (danger/interaction/navigation/change/question), confidence 0-1, and an
+      ≤8-word summary as composer handoff. State = mod context + observation
+      history + clip.
+- [x] Gate engines: `gemini` (decision-only call, no composer), `local`
+      (YGG-248 adapter: any self-hosted decision model behind an
+      OpenAI-compatible endpoint — Ollama/LM Studio/vLLM via
+      GATE_LOCAL_BASE_URL/GATE_LOCAL_MODEL; unreachable = explicit
+      unavailable), `rules` (clip-blind heuristic on mod context — the
+      matrix baseline that proves vision is needed).
+- [x] Escalation policy: `applyGatePolicy` — speak requires shouldSpeak +
+      isNew + relevance class ≥ configured floor (default useful) +
+      confidence ≥ configured floor (default 0.5). Gated pipeline in the
+      engine loop: gate decides, cloud composer runs only on speak
+      (provenance chip carries gate + composer). Configurable from the
+      Session panel (pipeline + gate engine pickers).
+- [x] Reflex rules (`server/utils/reflex.ts`): canned 0ms callouts from mod
+      context — death, critical health, melee contact — bypassing the Gate
+      entirely, with per-rule anti-spam cooldown. Provenance tier `reflex`.
+- [x] Eval matrix (Stage 5 report): `POST /api/evals/run` takes an `engines`
+      array; the runner scores each Situation × engine (fused vs gate
+      decisions) with decision-tier checks (spoken, relevanceClass, novelty)
+      and produces per-engine scorecards — accuracy, speak recall, silence
+      precision, avg latency, confidence calibration (correct vs incorrect).
+      Availability probes turn a missing local model into an explicit
+      "unavailable" scorecard instead of failed passes. The dashboard shows
+      the matrix table (situations × engines) + scorecards; the Gate ships
+      only if evals say it beats or matches the fused baseline.
+- [ ] Clef-flash weights behind the custom schema head remain bleeding-edge;
+      until hosted, the `local` adapter accepts any vision-capable
+      OpenAI-compatible model.
 
 ## Stage 6 — Local Composer + full-local mode (System 2)
 

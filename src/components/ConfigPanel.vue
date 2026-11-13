@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import {
+	GATE_ENGINE_OPTIONS,
+	PIPELINE_OPTIONS,
 	STT_ENGINE_OPTIONS,
 	TTS_ENGINE_OPTIONS,
 	useSessionStore,
@@ -20,6 +22,8 @@ const {
 	captureInterval,
 	serverConnected,
 	source,
+	pipeline,
+	gateEngine,
 	ttsEngine,
 	sttEngine,
 } = storeToRefs(session);
@@ -233,6 +237,39 @@ function save() {
 			</UFormField>
 
 			<div class="flex flex-col gap-3.5">
+				<UFormField
+					label="Pipeline"
+					class="flex flex-col gap-2"
+					:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+				>
+					<USelect
+						:model-value="pipeline"
+						:items="[...PIPELINE_OPTIONS]"
+						:disabled="!serverConnected"
+						size="sm"
+						class="font-mono text-xs"
+						aria-label="Decision pipeline"
+						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('pipeline', v) }"
+					/>
+				</UFormField>
+
+				<UFormField
+					v-if="pipeline === 'gated'"
+					label="Gate engine"
+					class="flex flex-col gap-2"
+					:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+				>
+					<USelect
+						:model-value="gateEngine"
+						:items="[...GATE_ENGINE_OPTIONS]"
+						:disabled="!serverConnected"
+						size="sm"
+						class="font-mono text-xs"
+						aria-label="Gate engine"
+						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('gate', v) }"
+					/>
+				</UFormField>
+
 				<UFormField
 					label="TTS engine"
 					class="flex flex-col gap-2"

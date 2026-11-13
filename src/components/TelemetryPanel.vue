@@ -59,6 +59,14 @@ watch(
 					<span>{{ lastProvenance.engine }}</span>
 					<span aria-hidden="true">·</span>
 					<span class="tabular-nums">{{ lastProvenance.latencyMs }}ms</span>
+					<template v-if="lastProvenance.composer">
+						<span aria-hidden="true">·</span>
+						<span>compose {{ lastProvenance.composer }}</span>
+						<template v-if="lastProvenance.composerLatencyMs">
+							<span aria-hidden="true">·</span>
+							<span class="tabular-nums">{{ lastProvenance.composerLatencyMs }}ms</span>
+						</template>
+					</template>
 					<template v-if="lastProvenance.relevance !== undefined">
 						<span aria-hidden="true">·</span>
 						<span class="tabular-nums">rel {{ lastProvenance.relevance }}/10</span>

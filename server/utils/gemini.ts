@@ -281,7 +281,7 @@ export type GeminiResponse = z.infer<typeof responseSchema>;
 const MAX_HISTORY = 10;
 const observations: string[] = [];
 export const GEMINI_MODEL_ID = "gemini-3.1-flash-lite-preview";
-const GEMINI_MODEL = google(GEMINI_MODEL_ID);
+export const GEMINI_MODEL = google(GEMINI_MODEL_ID);
 const GEMINI_OUTPUT = Output.object({
 	schema: responseSchema,
 	name: "skyrim_live_assistance",
@@ -307,6 +307,16 @@ function addObservationToHistory(observation: string, relevance: number): void {
 
 export function clearHistory() {
 	observations.length = 0;
+}
+
+/** Record an entry in the player's spoken history (gate matrix reuse). */
+export function addToHistory(observation: string, relevance: number): void {
+	addObservationToHistory(observation, relevance);
+}
+
+/** What the player has already been told (gate novelty filter input). */
+export function getHistory(): string[] {
+	return [...observations];
 }
 
 export async function describeVideo(

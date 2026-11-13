@@ -12,6 +12,7 @@ export default defineEventHandler(async (event) => {
 		situationId?: unknown;
 		humanVerdict?: unknown;
 		humanNote?: unknown;
+		engine?: unknown;
 	}>(event);
 
 	const { runId, situationId, humanVerdict } = body ?? {};
@@ -32,6 +33,7 @@ export default defineEventHandler(async (event) => {
 			situationId,
 			humanVerdict,
 			typeof body.humanNote === "string" ? body.humanNote : "",
+			typeof body.engine === "string" ? body.engine : undefined,
 		);
 	} catch (err) {
 		throw createError({

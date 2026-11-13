@@ -83,6 +83,16 @@ export default defineWebSocketHandler({
 						updateConfig({ ttsEngine: data.value });
 					}
 					break;
+				case "setPipeline":
+					if (typeof data.value === "string") {
+						updateConfig({ pipeline: data.value });
+					}
+					break;
+				case "setGateEngine":
+					if (typeof data.value === "string") {
+						updateConfig({ gateEngine: data.value });
+					}
+					break;
 				case "setSttEngine":
 					if (typeof data.value === "string") {
 						updateConfig({ sttEngine: data.value });

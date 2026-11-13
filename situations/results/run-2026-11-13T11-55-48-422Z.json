@@ -1,0 +1,709 @@
+{
+	"id": "run-2026-11-13T11-55-48-422Z",
+	"startedAt": 1794570948422,
+	"finishedAt": 1794570975795,
+	"status": "done",
+	"engine": "fused",
+	"engines": [
+		"fused",
+		"gate:gemini",
+		"gate:rules"
+	],
+	"judge": true,
+	"summary": {
+		"total": 6,
+		"passed": 3,
+		"failed": 3
+	},
+	"engineSummaries": [
+		{
+			"engine": "fused",
+			"total": 2,
+			"passed": 1,
+			"failed": 1,
+			"speakRecall": {
+				"expected": 2,
+				"spoke": 1
+			},
+			"silencePrecision": {
+				"expected": 2,
+				"stayedSilent": 2
+			},
+			"avgLatencyMs": 1509.5,
+			"calibration": {
+				"onCorrect": null,
+				"onIncorrect": null
+			}
+		},
+		{
+			"engine": "gate:gemini",
+			"total": 2,
+			"passed": 2,
+			"failed": 0,
+			"speakRecall": {
+				"expected": 2,
+				"spoke": 2
+			},
+			"silencePrecision": {
+				"expected": 2,
+				"stayedSilent": 2
+			},
+			"avgLatencyMs": 1532.75,
+			"calibration": {
+				"onCorrect": 0.9249999999999999,
+				"onIncorrect": null
+			}
+		},
+		{
+			"engine": "gate:rules",
+			"total": 2,
+			"passed": 0,
+			"failed": 2,
+			"speakRecall": {
+				"expected": 2,
+				"spoke": 0
+			},
+			"silencePrecision": {
+				"expected": 2,
+				"stayedSilent": 2
+			},
+			"avgLatencyMs": 0.25,
+			"calibration": {
+				"onCorrect": 0.3,
+				"onIncorrect": 0.3
+			}
+		}
+	],
+	"results": [
+		{
+			"situationId": "first-contact",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Cinématique en cours. Aucune action possible.",
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1591,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "expected an observation, got silence"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": false,
+							"detail": "relevance 0 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": false,
+							"detail": "no French markers found"
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "fail",
+					"engine": "fused",
+					"judge": {
+						"score": 0.2,
+						"correct": false,
+						"reason": "L'assistant a identifié correctement la cinématique mais le message est inutile car il n'apporte aucune description contextuelle de l'environnement ou de l'action."
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": "Cinématique en cours. Aucune action possible.",
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1441,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "stayed silent as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": true,
+							"detail": "relevance 0 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": false,
+							"detail": "no French markers found"
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "fail",
+					"engine": "fused",
+					"judge": {
+						"score": 0,
+						"correct": false,
+						"reason": "L'assistant a fourni une description inutile et générique pour une séquence cinématique d'introduction, au lieu de rester silencieux."
+					}
+				}
+			],
+			"engine": "fused"
+		},
+		{
+			"situationId": "second-scene",
+			"passed": true,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Effet de sorts actif. Aucun ennemi proche.",
+					"spoken": true,
+					"relevance": 5,
+					"actions": [],
+					"latencyMs": 1837,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "spoke as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": true,
+							"detail": "relevance 5 vs band [4, 10]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						},
+						{
+							"name": "french",
+							"tier": "composer",
+							"passed": true
+						},
+						{
+							"name": "sentenceLimit",
+							"tier": "composer",
+							"passed": true
+						}
+					],
+					"verdict": "pass",
+					"engine": "fused",
+					"judge": {
+						"score": 0.3,
+						"correct": false,
+						"reason": "L'assistant rate l'information critique qu'un dragon est en train d'attaquer le joueur, ce qui est une information vitale plutôt qu'un simple effet de sort."
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1169,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "stayed silent as expected"
+						},
+						{
+							"name": "relevanceBand",
+							"tier": "decision",
+							"passed": true,
+							"detail": "relevance 0 vs band [0, 3]"
+						},
+						{
+							"name": "actions",
+							"tier": "decision",
+							"passed": true,
+							"detail": "no actions, as expected"
+						}
+					],
+					"verdict": "pass",
+					"engine": "fused",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant a correctement choisi de rester silencieux pendant la relecture du clip, ce qui est le comportement attendu."
+					}
+				}
+			],
+			"engine": "fused"
+		},
+		{
+			"situationId": "first-contact",
+			"passed": true,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Début de la partie, cinématique d'introduction.",
+					"spoken": true,
+					"relevance": 5,
+					"actions": [],
+					"latencyMs": 1594,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "policy allows speech (gemini · gemini-3.1-flash-lite-preview)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says useful, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=true, expected true"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "1594ms (confidence 0.90)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 0.5,
+						"correct": false,
+						"reason": "L'observation est exacte mais manque de précision sur l'environnement enneigé qui est une information plus actionnable."
+					},
+					"engine": "gate:gemini",
+					"gate": {
+						"shouldSpeak": true,
+						"isNew": true,
+						"relevanceClass": "useful",
+						"category": "change",
+						"confidence": 0.9,
+						"policyReason": "policy allows speech"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1192,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (gemini · gemini-3.1-flash-lite-preview)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "1192ms (confidence 1.00)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant a correctement maintenu le silence, car il s'agit d'une répétition d'une séquence cinématique sans nouvelle information utile."
+					},
+					"engine": "gate:gemini",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 1,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:gemini"
+		},
+		{
+			"situationId": "second-scene",
+			"passed": true,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": "Attention, combat en cours, dragon à proximité.",
+					"spoken": true,
+					"relevance": 8,
+					"actions": [],
+					"latencyMs": 1695,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "policy allows speech (gemini · gemini-3.1-flash-lite-preview)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says critical, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=true, expected true"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "1695ms (confidence 0.90)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 0.8,
+						"correct": true,
+						"reason": "L'observation est exacte et pertinente, bien que la répétition soit évitée dans les replays."
+					},
+					"engine": "gate:gemini",
+					"gate": {
+						"shouldSpeak": true,
+						"isNew": true,
+						"relevanceClass": "critical",
+						"category": "danger",
+						"confidence": 0.9,
+						"policyReason": "policy allows speech"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1650,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (gemini · gemini-3.1-flash-lite-preview)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "1650ms (confidence 0.90)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant a correctement choisi de rester silencieux pendant la séquence de transition."
+					},
+					"engine": "gate:gemini",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "danger",
+						"confidence": 0.9,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:gemini"
+		},
+		{
+			"situationId": "first-contact",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says isNew=false, expected true"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "1ms (confidence 0.30)"
+						}
+					],
+					"verdict": "fail",
+					"judge": {
+						"score": 0,
+						"correct": false,
+						"reason": "L'assistant a échoué à identifier le début de la scène cinématique, manquant une occasion cruciale d'orienter l'utilisateur."
+					},
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "0ms (confidence 0.30)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant est resté silencieux comme prévu lors de la relecture d'une scène déjà connue."
+					},
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:rules"
+		},
+		{
+			"situationId": "second-scene",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says isNew=false, expected true"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "0ms (confidence 0.30)"
+						}
+					],
+					"verdict": "fail",
+					"judge": {
+						"score": 0,
+						"correct": false,
+						"reason": "L'assistant a échoué à informer le joueur de l'utilisation d'un sort ou d'une capacité active, ce qui est une information cruciale."
+					},
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						},
+						{
+							"name": "gateLatency",
+							"tier": "decision",
+							"passed": true,
+							"detail": "0ms (confidence 0.30)"
+						}
+					],
+					"verdict": "pass",
+					"judge": {
+						"score": 1,
+						"correct": true,
+						"reason": "L'assistant a fait le bon choix en restant silencieux car aucune information nouvelle ou critique n'était nécessaire pour le joueur."
+					},
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:rules"
+		}
+	]
+}

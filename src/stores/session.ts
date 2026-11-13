@@ -19,14 +19,17 @@ export interface LogEntry {
 
 export type SourceKind = "screen" | "video-file";
 
-/** Provenance chip (Stage 4): which engine produced an output, how fast. */
+/** Provenance chip (Stage 4/5): which engine produced an output, how fast. */
 export interface ProvenanceChip {
-	tier: "gate" | "tts" | "stt";
+	tier: "gate" | "tts" | "stt" | "reflex";
 	engine: string;
 	latencyMs: number;
 	relevance?: number;
 	cached?: boolean;
 	fallbackFrom?: string | null;
+	/** Gated pipeline: which composer turned the gate's decision into prose. */
+	composer?: string;
+	composerLatencyMs?: number;
 }
 
 export interface TtsProvenance {
@@ -35,6 +38,17 @@ export interface TtsProvenance {
 	cached?: boolean;
 	fallbackFrom?: string | null;
 }
+
+export const PIPELINE_OPTIONS = [
+	{ label: "Fused Gemini (baseline)", value: "fused" },
+	{ label: "Gated (System 1 + composer)", value: "gated" },
+] as const;
+
+export const GATE_ENGINE_OPTIONS = [
+	{ label: "Gemini (decision-only)", value: "gemini" },
+	{ label: "Self-hosted (OpenAI-compatible)", value: "local" },
+	{ label: "Reflex rules (no vision)", value: "rules" },
+] as const;
 
 export const TTS_ENGINE_OPTIONS = [
 	{ label: "ElevenLabs (cloud)", value: "elevenlabs" },
@@ -92,7 +106,9 @@ export const useSessionStore = defineStore("session", () => {
 	const lastDescription = shallowRef<string | null>(null);
 	const lastProvenance = shallowRef<ProvenanceChip | null>(null);
 
-	// Engine seams (Stage 4) — mirrored from the server's status broadcasts
+	// Engine seams (Stage 4/5) — mirrored from the server's status broadcasts
+	const pipeline = shallowRef<string>("fused");
+	const gateEngine = shallowRef<string>("gemini");
 	const ttsEngine = shallowRef<string>("elevenlabs");
 	const sttEngine = shallowRef<string>("elevenlabs");
 
@@ -483,6 +499,12 @@ export const useSessionStore = defineStore("session", () => {
 
 			case "status":
 				captureInterval.value = data.intervalMs as number;
+				if (typeof data.pipeline === "string") {
+					pipeline.value = data.pipeline;
+				}
+				if (typeof data.gateEngine === "string") {
+					gateEngine.value = data.gateEngine;
+				}
 				if (typeof data.ttsEngine === "string") {
 					ttsEngine.value = data.ttsEngine;
 				}
@@ -517,8 +539,14 @@ export const useSessionStore = defineStore("session", () => {
 		}
 	}
 
-	function setEngines(kind: "tts" | "stt", engine: string): void {
-		if (kind === "tts") {
+	function setEngines(kind: "pipeline" | "gate" | "tts" | "stt", engine: string): void {
+		if (kind === "pipeline") {
+			pipeline.value = engine;
+			sendCommand("setPipeline", engine);
+		} else if (kind === "gate") {
+			gateEngine.value = engine;
+			sendCommand("setGateEngine", engine);
+		} else if (kind === "tts") {
 			ttsEngine.value = engine;
 			sendCommand("setTtsEngine", engine);
 		} else {
@@ -540,6 +568,8 @@ export const useSessionStore = defineStore("session", () => {
 		captureInterval,
 		lastDescription,
 		lastProvenance,
+		pipeline,
+		gateEngine,
 		ttsEngine,
 		sttEngine,
 		isPlaying,

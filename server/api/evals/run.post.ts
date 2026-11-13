@@ -14,14 +14,17 @@ export default defineEventHandler(async (event) => {
 		});
 	}
 
-	const body = await readBody<{ ids?: unknown; judge?: unknown }>(event).catch(() => ({}));
+	const body = await readBody<{ ids?: unknown; judge?: unknown; engines?: unknown }>(event).catch(() => ({}));
 	const ids = Array.isArray(body?.ids)
 		? body.ids.filter((id): id is string => typeof id === "string")
 		: undefined;
 	const judge = body?.judge === undefined ? true : body.judge === true;
+	const engines = Array.isArray(body?.engines)
+		? body.engines.filter((engine): engine is string => typeof engine === "string")
+		: undefined;
 
 	try {
-		const run = await startRun(ids, judge);
+		const run = await startRun(ids, judge, engines);
 		return { runId: run.id };
 	} catch (err) {
 		throw createError({

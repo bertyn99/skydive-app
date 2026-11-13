@@ -11,14 +11,31 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+	addToHistory,
 	clearHistory,
 	describeVideo,
-	GEMINI_MODEL_ID,
+	getHistory,
 	judgeObservation,
 	type JudgeVerdict,
 } from "./gemini";
+import {
+	applyGatePolicy,
+	experimental_decide,
+	type GateCategory,
+	type GateRelevance,
+	probeGate,
+	RELEVANCE_VALUE,
+} from "./gate";
 import { isSilent } from "./silence";
 import type { SkyrimConnector } from "./skyrim-connector";
+import {
+	gateEngineOf,
+	isMatrixEngineId,
+	type MatrixEngineId,
+} from "../../shared/eval-engines";
+
+export { MATRIX_ENGINES, isMatrixEngineId } from "../../shared/eval-engines";
+export type { MatrixEngineId } from "../../shared/eval-engines";
 
 export const SITUATIONS_DIR = "situations";
 const RESULTS_DIR = path.join(SITUATIONS_DIR, "results");
@@ -77,6 +94,17 @@ export interface PassResult {
 	judge?: JudgeVerdict;
 	judgeError?: string;
 	error?: string;
+	/** Which matrix engine produced this pass. Absent on legacy files (= fused). */
+	engine?: MatrixEngineId;
+	/** Gate-only fields (absent for the fused baseline). */
+	gate?: {
+		shouldSpeak: boolean;
+		isNew: boolean;
+		relevanceClass: GateRelevance;
+		category: GateCategory;
+		confidence: number;
+		policyReason: string;
+	};
 }
 
 export interface SituationResult {
@@ -86,6 +114,25 @@ export interface SituationResult {
 	humanVerdict: "agree" | "override" | null;
 	humanNote: string;
 	passes: PassResult[];
+	/** Which matrix engine produced this result. Absent on legacy files. */
+	engine?: MatrixEngineId;
+}
+
+/** Per-engine scorecard for a matrix run (Stage 5 report). */
+export interface EngineSummary {
+	engine: MatrixEngineId;
+	total: number;
+	passed: number;
+	failed: number;
+	/** Of speak-expected passes: how many spoke. */
+	speakRecall: { expected: number; spoke: number } | null;
+	/** Of silence-expected passes: how many stayed silent. */
+	silencePrecision: { expected: number; stayedSilent: number } | null;
+	avgLatencyMs: number | null;
+	/** Calibration: mean confidence on correct vs incorrect decisions. */
+	calibration: { onCorrect: number | null; onIncorrect: number | null };
+	/** Set when the engine could not run at all (e.g. no local model). */
+	unavailable?: string;
 }
 
 export interface EvalRun {
@@ -93,10 +140,15 @@ export interface EvalRun {
 	startedAt: number;
 	finishedAt: number | null;
 	status: "running" | "done" | "error";
+	/** Legacy single-engine label (first matrix engine). Kept for drift view. */
 	engine: string;
+	/** Engines evaluated in this run. Absent on legacy single-engine files. */
+	engines?: MatrixEngineId[];
 	/** Whether an LLM judge graded each pass (agentic-eval pattern). */
 	judge: boolean;
 	summary: { total: number; passed: number; failed: number };
+	/** Per-engine scorecards. Absent on legacy files. */
+	engineSummaries?: EngineSummary[];
 	results: SituationResult[];
 }
 
@@ -452,6 +504,7 @@ async function evaluatePass(
 			latencyMs,
 			checks,
 			verdict: checks.every((check) => check.passed) ? "pass" : "fail",
+			engine: "fused",
 		};
 
 		// LLM-as-judge (optional): rubric grade on the same clip. Never
@@ -483,15 +536,204 @@ async function evaluatePass(
 			checks: [],
 			verdict: "fail",
 			error: err instanceof Error ? err.message : String(err),
+			engine: "fused",
 		};
 	}
+}
+
+/**
+ * Gate pass: System 1 decision only (no composer). The gate decides
+ * speak/silence; when it speaks, its ≤8-word summary stands in as the
+ * observation so the judge can grade the would-be utterance.
+ */
+async function evaluateGatePass(
+	def: SituationDefinition,
+	clip: { buffer: Buffer; mimeType: string },
+	pass: number,
+	expectation: Expectation,
+	engine: MatrixEngineId,
+	judgeEnabled: boolean,
+): Promise<PassResult> {
+	const start = Date.now();
+	try {
+		const { decision, provenance } = await experimental_decide(
+			clip.buffer,
+			clip.mimeType,
+			gateEngineOf(engine),
+			{
+				history: getHistory(),
+				modContext: def.modContext,
+			},
+		);
+		const policy = applyGatePolicy(decision);
+		const latencyMs = Date.now() - start;
+		const spoken = policy.speak;
+		const observation = spoken && decision.summary ? decision.summary : null;
+		const relevance = RELEVANCE_VALUE[decision.relevance];
+
+		// Decision-tier checks for gate engines: speak/silence vs expectation,
+		// relevance class vs expectation, and novelty discipline on repeats.
+		const expectedSpoken = expectation === "speak";
+		const checks: CheckResult[] = [
+			{
+				name: "spoken",
+				tier: "decision",
+				passed: spoken === expectedSpoken,
+				detail: `${policy.reason} (${provenance.engine} · ${provenance.modelId})`,
+			},
+		];
+
+		const classOk = expectedSpoken
+			? decision.relevance === "useful" || decision.relevance === "critical"
+			: decision.relevance === "silence" || decision.relevance === "minor";
+		checks.push({
+			name: "relevanceClass",
+			tier: "decision",
+			passed: classOk,
+			detail: `gate says ${decision.relevance}, expected ${expectedSpoken ? "useful/critical" : "silence/minor"}`,
+		});
+
+		// Novelty discipline: on a repeat the gate must mark the clip as
+		// already-known; on a first speak view it must see it as new.
+		const expectedNew = expectation === "speak";
+		checks.push({
+			name: "novelty",
+			tier: "decision",
+			passed: decision.isNew === expectedNew,
+			detail: `gate says isNew=${decision.isNew}, expected ${expectedNew}`,
+		});
+
+		if (judgeEnabled) {
+			try {
+				checks.push({
+					name: "gateLatency",
+					tier: "decision",
+					passed: true,
+					detail: `${latencyMs}ms (confidence ${decision.confidence.toFixed(2)})`,
+				});
+				const judge = await judgeObservation(clip.buffer, clip.mimeType, {
+					expectation,
+					description: def.description,
+					observation: spoken ? (observation ?? decision.summary) : null,
+					relevance,
+				});
+				return {
+					pass,
+					expectation,
+					observation,
+					spoken,
+					relevance,
+					actions: [],
+					latencyMs,
+					checks,
+					verdict: checks
+						.filter((check) => check.name !== "gateLatency")
+						.every((check) => check.passed)
+						? "pass"
+						: "fail",
+					judge,
+					engine,
+					gate: {
+						shouldSpeak: decision.shouldSpeak,
+						isNew: decision.isNew,
+						relevanceClass: decision.relevance,
+						category: decision.category,
+						confidence: decision.confidence,
+						policyReason: policy.reason,
+					},
+				};
+			} catch (err) {
+				return gatePassResult(pass, expectation, {
+					observation,
+					spoken,
+					relevance,
+					latencyMs,
+					checks,
+					engine,
+					decision,
+					policyReason: policy.reason,
+					judgeError: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+
+		return gatePassResult(pass, expectation, {
+			observation,
+			spoken,
+			relevance,
+			latencyMs,
+			checks,
+			engine,
+			decision,
+			policyReason: policy.reason,
+		});
+	} catch (err) {
+		return {
+			pass,
+			expectation,
+			observation: null,
+			spoken: false,
+			relevance: 0,
+			actions: [],
+			latencyMs: Date.now() - start,
+			checks: [],
+			verdict: "fail",
+			error: err instanceof Error ? err.message : String(err),
+			engine,
+		};
+	}
+}
+
+interface GatePassFields {
+	observation: string | null;
+	spoken: boolean;
+	relevance: number;
+	latencyMs: number;
+	checks: CheckResult[];
+	engine: MatrixEngineId;
+	decision: import("./gate").GateDecision;
+	policyReason: string;
+	judgeError?: string;
+}
+
+function gatePassResult(
+	pass: number,
+	expectation: Expectation,
+	fields: GatePassFields,
+): PassResult {
+	const decisionChecks = fields.checks.filter(
+		(check) => check.name !== "gateLatency",
+	);
+	return {
+		pass,
+		expectation,
+		observation: fields.observation,
+		spoken: fields.spoken,
+		relevance: fields.relevance,
+		actions: [],
+		latencyMs: fields.latencyMs,
+		checks: fields.checks,
+		verdict: decisionChecks.every((check) => check.passed) ? "pass" : "fail",
+		judgeError: fields.judgeError,
+		engine: fields.engine,
+		gate: {
+			shouldSpeak: fields.decision.shouldSpeak,
+			isNew: fields.decision.isNew,
+			relevanceClass: fields.decision.relevance,
+			category: fields.decision.category,
+			confidence: fields.decision.confidence,
+			policyReason: fields.policyReason,
+		},
+	};
 }
 
 async function evaluateSituation(
 	def: SituationDefinition,
 	judgeEnabled: boolean,
+	engine: MatrixEngineId,
 ): Promise<SituationResult> {
-	// Fresh observation history per Situation (glossary: Eval run).
+	// Fresh observation history per (engine, Situation): what one engine was
+	// told must not leak into the next engine's novelty decisions.
 	clearHistory();
 	const clip = await loadClip(def);
 
@@ -501,26 +743,107 @@ async function evaluateSituation(
 		humanVerdict: null,
 		humanNote: "",
 		passes: [],
+		engine,
 	};
 
-	result.passes.push(
-		await evaluatePass(def, clip, 1, def.expectation, judgeEnabled),
-	);
+	const runPass = async (pass: number, expectation: Expectation) => {
+		if (engine === "fused") {
+			return evaluatePass(def, clip, pass, expectation, judgeEnabled);
+		}
+		const gateResult = await evaluateGatePass(
+			def,
+			clip,
+			pass,
+			expectation,
+			engine,
+			judgeEnabled,
+		);
+		// Mirror the live gated loop: what the player would have heard enters
+		// the history, so the repeat pass exercises the novelty filter.
+		if (gateResult.spoken && gateResult.observation) {
+			addToHistory(gateResult.observation, gateResult.relevance);
+		}
+		return gateResult;
+	};
+
+	result.passes.push(await runPass(1, def.expectation));
 
 	if (def.repeat) {
 		// History retained on purpose: the novelty filter must catch it.
-		result.passes.push(
-			await evaluatePass(def, clip, 2, def.repeat.expectation, judgeEnabled),
-		);
+		result.passes.push(await runPass(2, def.repeat.expectation));
 	}
 
 	result.passed = result.passes.every((pass) => pass.verdict === "pass");
 	return result;
 }
 
+function normalizeEngineId(raw: unknown): MatrixEngineId {
+	return isMatrixEngineId(raw) ? raw : "fused";
+}
+
+/** Old single-engine result files gain matrix fields on load. */
+function normalizeRun(run: EvalRun): EvalRun {
+	if (run.engines && run.engineSummaries) return run;
+	const engines = run.engines ?? [
+		normalizeEngineId(run.engine ?? "fused"),
+	];
+	const results = run.results.map((entry) => ({
+		...entry,
+		engine: entry.engine ?? engines[0],
+	}));
+	return {
+		...run,
+		engines,
+		results,
+		engineSummaries: engines.map((engine) =>
+			computeEngineSummary({ ...run, results }, engine),
+		),
+	};
+}
+
+function computeEngineSummary(run: EvalRun, engine: MatrixEngineId): EngineSummary {
+	const results = run.results.filter((entry) => normalizeEngineId(entry.engine) === engine);
+	const passes = results.flatMap((entry) => entry.passes);
+
+	const speakPasses = passes.filter((pass) => pass.expectation === "speak");
+	const silencePasses = passes.filter((pass) => pass.expectation === "silence");
+	const latencies = passes.map((pass) => pass.latencyMs);
+
+	const gatePasses = passes.filter((pass) => pass.gate);
+	const spokenCheck = (pass: PassResult) =>
+		pass.checks.find((check) => check.name === "spoken");
+	const correct = gatePasses.filter((pass) => spokenCheck(pass)?.passed);
+	const incorrect = gatePasses.filter((pass) => !spokenCheck(pass)?.passed);
+	const mean = (values: number[]) =>
+		values.length > 0
+			? values.reduce((sum, value) => sum + value, 0) / values.length
+			: null;
+
+	return {
+		engine,
+		total: results.length,
+		passed: results.filter((entry) => entry.passed).length,
+		failed: results.filter((entry) => !entry.passed).length,
+		speakRecall: {
+			expected: speakPasses.length,
+			spoke: speakPasses.filter((pass) => pass.spoken).length,
+		},
+		silencePrecision: {
+			expected: silencePasses.length,
+			stayedSilent: silencePasses.filter((pass) => !pass.spoken).length,
+		},
+		avgLatencyMs: mean(latencies),
+		calibration: {
+			onCorrect: mean(correct.map((pass) => pass.gate!.confidence)),
+			onIncorrect: mean(incorrect.map((pass) => pass.gate!.confidence)),
+		},
+	};
+}
+
 export async function startRun(
 	ids?: string[],
 	judge = true,
+	enginesInput?: string[],
 ): Promise<EvalRun> {
 	if (activeRun && activeRun.status === "running") {
 		throw new Error("A run is already in progress");
@@ -538,34 +861,92 @@ export async function startRun(
 		throw new Error("No situation fixtures found in situations/");
 	}
 
+	const requested = enginesInput?.filter(isMatrixEngineId) ?? [];
+	const engines: MatrixEngineId[] = requested.length > 0
+		? requested
+		: ["fused"];
+
+	// Availability probes decide whether an engine runs at all — a missing
+	// local decision model shows up as an explicit "unavailable" scorecard
+	// instead of a pile of failed passes.
+	const unavailable = new Map<MatrixEngineId, string>();
+	for (const engine of engines) {
+		if (engine === "fused") continue;
+		const probe = await probeGate(gateEngineOf(engine));
+		if (!probe.available) unavailable.set(engine, probe.detail);
+	}
+
 	const run: EvalRun = {
 		id: `run-${new Date().toISOString().replace(/[:.]/g, "-")}`,
 		startedAt: Date.now(),
 		finishedAt: null,
 		status: "running",
-		engine: GEMINI_MODEL_ID,
+		engine: engines[0],
+		engines,
 		judge,
-		summary: { total: selected.length, passed: 0, failed: 0 },
+		summary: { total: selected.length * engines.length, passed: 0, failed: 0 },
+		engineSummaries: engines.map((engine) => ({
+			engine,
+			total: selected.length,
+			passed: 0,
+			failed: 0,
+			speakRecall: null,
+			silencePrecision: null,
+			avgLatencyMs: null,
+			calibration: { onCorrect: null, onIncorrect: null },
+			unavailable: unavailable.get(engine),
+		})),
 		results: [],
 	};
 	activeRun = run;
 	await persistRun(run);
 
 	// Fire-and-forget: the API route returns the runId immediately and the
-	// dashboard polls for progress.
+	// dashboard polls for progress. Engine-major order keeps each engine's
+	// results contiguous while the run streams in.
 	void (async () => {
 		try {
-			for (const def of selected) {
-				const result = await evaluateSituation(def, judge);
-				run.results.push(result);
-				if (result.passed) {
-					run.summary.passed += 1;
-				} else {
-					run.summary.failed += 1;
+			for (const engine of engines) {
+				for (const def of selected) {
+					let result: SituationResult;
+					const reason = unavailable.get(engine);
+					if (reason) {
+						result = {
+							situationId: def.id,
+							engine,
+							passed: false,
+							humanVerdict: null,
+							humanNote: "",
+							passes: [
+								{
+									pass: 1,
+									expectation: def.expectation,
+									observation: null,
+									spoken: false,
+									relevance: 0,
+									actions: [],
+									latencyMs: 0,
+									checks: [],
+									verdict: "fail",
+									error: `engine unavailable: ${reason}`,
+									engine,
+								},
+							],
+						};
+					} else {
+						result = await evaluateSituation(def, judge, engine);
+					}
+					run.results.push(result);
+					if (result.passed) {
+						run.summary.passed += 1;
+					} else {
+						run.summary.failed += 1;
+					}
+					await persistRun(run);
 				}
-				await persistRun(run);
 			}
 			run.status = "done";
+			run.engineSummaries = engines.map((engine) => computeEngineSummary(run, engine));
 		} catch (err) {
 			run.status = "error";
 			run.results.push({
@@ -603,14 +984,14 @@ export async function listRuns(): Promise<EvalRun[]> {
 	if (activeRun && !runs.some((run) => run.id === activeRun?.id)) {
 		runs.push(activeRun);
 	}
-	return runs.sort((a, b) => b.startedAt - a.startedAt);
+	return runs.sort((a, b) => b.startedAt - a.startedAt).map(normalizeRun);
 }
 
 export async function getRun(runId: string): Promise<EvalRun | null> {
 	if (activeRun && activeRun.id === runId) return activeRun;
 	try {
-		return JSON.parse(
-			await readFile(path.join(RESULTS_DIR, `${runId}.json`), "utf8"),
+		return normalizeRun(
+			JSON.parse(await readFile(path.join(RESULTS_DIR, `${runId}.json`), "utf8")),
 		);
 	} catch {
 		return null;
@@ -622,17 +1003,26 @@ export async function setVerdict(
 	situationId: string,
 	verdict: "agree" | "override",
 	note: string,
+	engine?: string,
 ): Promise<EvalRun | null> {
 	const run = await getRun(runId);
 	if (!run) throw new Error(`Unknown run: ${runId}`);
-	const result = run.results.find((entry) => entry.situationId === situationId);
+	const targetEngine = engine ? normalizeEngineId(engine) : undefined;
+	const result = run.results.find(
+		(entry) =>
+			entry.situationId === situationId &&
+			(targetEngine === undefined ||
+				normalizeEngineId(entry.engine) === targetEngine),
+	);
 	if (!result) throw new Error(`Run ${runId} has no result for ${situationId}`);
 
 	result.humanVerdict = verdict;
 	result.humanNote = note;
 	if (activeRun && activeRun.id === runId) {
 		const liveResult = activeRun.results.find(
-			(entry) => entry.situationId === situationId,
+			(entry) =>
+				entry.situationId === situationId &&
+				(targetEngine === undefined || entry.engine === targetEngine),
 		);
 		if (liveResult) {
 			liveResult.humanVerdict = verdict;

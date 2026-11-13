@@ -1,5 +1,23 @@
 import type { Peer } from "crossws";
-import { clearHistory, describeVideo, GEMINI_MODEL_ID } from "./gemini";
+import {
+	clearHistory,
+	describeVideo,
+	GEMINI_MODEL_ID,
+	getHistory,
+} from "./gemini";
+import {
+	applyGatePolicy,
+	experimental_decide,
+	type GateEngineId,
+	isGateEngineId,
+	RELEVANCE_VALUE,
+	resolveGateEngine,
+} from "./gate";
+import { parseSkyrimState } from "./skyrim-state-parser";
+import {
+	evaluateReflex,
+	REFLEX_COOLDOWN_MS,
+} from "./reflex";
 import {
 	isSttEngineId,
 	type SttEngineId,
@@ -17,10 +35,14 @@ import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { SkyrimFileConnector } from "./skyrim-file-connector";
 
+export type PipelineMode = "fused" | "gated";
+
 interface EngineState {
 	isRunning: boolean;
 	intervalMs: number;
 	systemPrompt: string;
+	pipeline: PipelineMode;
+	gateEngine: GateEngineId;
 	ttsEngine: TtsEngineId;
 	sttEngine: SttEngineId;
 	clients: Set<Peer>;
@@ -30,6 +52,8 @@ interface EngineState {
 	latestGameState: GameStatePayload | null;
 	/** Until this timestamp, high-priority mod context bypasses the ambient cooldown. */
 	urgentUntil: number;
+	/** Last reflex callout per rule (anti-spam cooldown). */
+	reflexLastFired: Map<string, number>;
 	pendingQuestion: string | null;
 	latestClipBuffer: Buffer | null;
 	wakeWordPending: boolean;
@@ -38,10 +62,16 @@ interface EngineState {
 	connector: SkyrimConnector | null;
 }
 
+function resolvePipeline(value: unknown, fallback: PipelineMode): PipelineMode {
+	return value === "gated" || value === "fused" ? value : fallback;
+}
+
 const state: EngineState = {
 	isRunning: false,
 	intervalMs: 6000,
 	systemPrompt: "",
+	pipeline: resolvePipeline(process.env.PIPELINE, "fused"),
+	gateEngine: resolveGateEngine(process.env.GATE_ENGINE, "gemini"),
 	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, "elevenlabs"),
 	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "elevenlabs"),
 	clients: new Set(),
@@ -50,6 +80,7 @@ const state: EngineState = {
 	processing: false,
 	latestGameState: null,
 	urgentUntil: 0,
+	reflexLastFired: new Map(),
 	pendingQuestion: null,
 	latestClipBuffer: null,
 	wakeWordPending: false,
@@ -102,6 +133,199 @@ export function setConnector(connector: SkyrimConnector) {
 	log("info", "engine", `Skyrim connector set: ${connector.constructor.name}`);
 }
 
+/** Mod context as text for the gate (null when unavailable). */
+async function modContextText(): Promise<string | null> {
+	if (!state.connector) return null;
+	try {
+		const ctx = await state.connector.getContext();
+		return ctx.raw ? parseSkyrimState(ctx.raw) : null;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log("warn", "gate", `Mod context unavailable: ${msg}`);
+		return null;
+	}
+}
+
+/**
+ * Broadcast the observation, suggest actions and synthesize speech.
+ * Shared tail of both pipelines.
+ */
+async function speakToPlayer(input: {
+	text: string | null;
+	relevance: number;
+	actions: { type: string }[];
+	latencyMs: number;
+	isQuestion: boolean;
+	provenance: {
+		tier: "gate" | "reflex";
+		engine: string;
+		latencyMs: number;
+		relevance: number;
+		composer?: string;
+		composerLatencyMs?: number;
+	};
+}): Promise<void> {
+	const isRelevant = input.isQuestion || input.relevance >= 4;
+
+	broadcast({
+		type: "description",
+		text: input.text,
+		relevance: input.relevance,
+		actions: input.actions,
+		latency: input.latencyMs,
+		silent: !isRelevant,
+		provenance: input.provenance,
+	});
+
+	if (input.actions.length > 0) {
+		broadcast({ type: "actions", actions: input.actions });
+		log("info", "engine", `Actions suggested: ${input.actions.map((a) => a.type).join(", ")}`);
+	}
+
+	if (!isRelevant || !input.text) {
+		log("info", "engine", `Skipping TTS — relevance ${input.relevance}/10`);
+		return;
+	}
+	if (isSilent(input.text)) {
+		log("info", "engine", "Silent — skipping TTS");
+		return;
+	}
+
+	const tts = await synthesizeSpeech(input.text, state.ttsEngine);
+	if (!tts) {
+		log("error", "tts", `All TTS engines failed — skipping audio for: ${input.text.slice(0, 60)}`);
+		return;
+	}
+	if (input.isQuestion) {
+		state.lastAnswerTime = Date.now();
+	}
+	if (tts.provenance.fallbackFrom) {
+		log("warn", "tts", `Engine ${tts.provenance.fallbackFrom} failed — fallback to ${tts.provenance.engine}`);
+	}
+	log("info", "tts", `${tts.provenance.engine} (${tts.provenance.latencyMs}ms${tts.provenance.cached ? ", cached" : ""})`);
+	broadcast({
+		type: "audio",
+		buffer: tts.audio,
+		mimeType: tts.mimeType,
+		priority: input.isQuestion ? "answer" : "ambient",
+		text: input.text,
+		provenance: {
+			tier: "tts",
+			engine: tts.provenance.engine,
+			latencyMs: tts.provenance.latencyMs,
+			cached: tts.provenance.cached,
+			fallbackFrom: tts.provenance.fallbackFrom,
+		},
+	});
+}
+
+/** Baseline pipeline: one fused Gemini call decides AND composes. */
+async function runFusedPipeline(
+	videoBuffer: Buffer,
+	question: string | null,
+): Promise<void> {
+	const startGemini = Date.now();
+	const { response, isQuestion } = await describeVideo(
+		videoBuffer,
+		state.systemPrompt || undefined,
+		state.connector || undefined,
+		question || undefined,
+	);
+	const geminiMs = Date.now() - startGemini;
+
+	const observation = response.observation;
+	const relevance = response.relevance;
+	const finalObservation =
+		isQuestion && (!observation || isSilent(observation))
+			? "Je ne vois pas assez clairement. Reposez la question en restant immobile une seconde."
+			: observation;
+
+	log(
+		"info",
+		"gemini",
+		`Response (${geminiMs}ms): relevance=${relevance}, observation=${observation ?? "(silent)"}, actions=${response.actions?.length ?? 0}`,
+	);
+
+	await speakToPlayer({
+		text: finalObservation,
+		relevance,
+		actions: response.actions,
+		latencyMs: geminiMs,
+		isQuestion,
+		provenance: {
+			tier: "gate",
+			engine: GEMINI_MODEL_ID,
+			latencyMs: geminiMs,
+			relevance,
+		},
+	});
+}
+
+/** Gated pipeline: System 1 gate decides; composer runs only on speak. */
+async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
+	const modContext = await modContextText();
+	const gateStart = Date.now();
+	const { decision, provenance: gateProv } = await experimental_decide(
+		videoBuffer,
+		"video/webm",
+		state.gateEngine,
+		{ history: getHistory(), modContext },
+	);
+	const gateMs = Date.now() - gateStart;
+	const policy = applyGatePolicy(decision);
+
+	log(
+		"info",
+		"gate",
+		`${state.gateEngine}/${gateProv.modelId} (${gateMs}ms): speak=${policy.speak} (${policy.reason}), relevance=${decision.relevance}, confidence=${decision.confidence.toFixed(2)}`,
+	);
+
+	if (!policy.speak) {
+		// The gate IS the output: SILENCE, with provenance.
+		await speakToPlayer({
+			text: null,
+			relevance: RELEVANCE_VALUE[decision.relevance],
+			actions: [],
+			latencyMs: gateMs,
+			isQuestion: false,
+			provenance: {
+				tier: "gate",
+				engine: `${state.gateEngine}·${gateProv.modelId}`,
+				latencyMs: gateMs,
+				relevance: RELEVANCE_VALUE[decision.relevance],
+			},
+		});
+		return;
+	}
+
+	// Escalation: compose through the cloud composer (Stage 6 swaps in a
+	// local composer when the policy routes there).
+	const composerStart = Date.now();
+	const { response } = await describeVideo(
+		videoBuffer,
+		state.systemPrompt || undefined,
+		state.connector || undefined,
+		undefined,
+	);
+	const composerMs = Date.now() - composerStart;
+
+	await speakToPlayer({
+		text: response.observation,
+		relevance: response.relevance,
+		actions: response.actions,
+		latencyMs: gateMs + composerMs,
+		isQuestion: false,
+		provenance: {
+			tier: "gate",
+			engine: `${state.gateEngine}·${gateProv.modelId}`,
+			latencyMs: gateMs,
+			relevance: RELEVANCE_VALUE[decision.relevance],
+			composer: GEMINI_MODEL_ID,
+			composerLatencyMs: composerMs,
+		},
+	});
+}
+
 export function processClip(videoBuffer: Buffer, durationMs: number) {
 	// Keep latest clip for on-demand question processing
 	state.latestClipBuffer = videoBuffer;
@@ -138,105 +362,17 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 					log(
 						"info",
 						"engine",
-						`Processing clip (${(current.videoBuffer.length / 1024).toFixed(0)}KB, ${current.durationMs}ms)${question ? ` [question: ${question}]` : ""}${urgent ? " [urgent]" : ""}`,
+						`Processing clip (${(current.videoBuffer.length / 1024).toFixed(0)}KB, ${current.durationMs}ms)${question ? ` [question: ${question}]` : ""}${urgent ? " [urgent]" : ""} [${state.pipeline}]`,
 					);
 
-					const startGemini = Date.now();
-					const { response, isQuestion } = await describeVideo(
-						current.videoBuffer,
-						state.systemPrompt || undefined,
-						state.connector || undefined,
-						question || undefined,
-					);
-					const geminiMs = Date.now() - startGemini;
-
-					const observation = response.observation;
-					const relevance = response.relevance;
-					const actions = response.actions;
-					const finalObservation =
-						isQuestion && (!observation || isSilent(observation))
-							? "Je ne vois pas assez clairement. Reposez la question en restant immobile une seconde."
-							: observation;
-
-					log(
-						"info",
-						"gemini",
-						`Response (${geminiMs}ms): relevance=${relevance}, observation=${observation ?? "(silent)"}, actions=${actions?.length ?? 0}`,
-					);
-
-					const isRelevant = isQuestion || relevance >= 4;
-
-					// Provenance chip (Stage 4): which gate decided, how fast,
-					// and how relevant it judged the moment.
-					broadcast({
-						type: "description",
-						text: finalObservation,
-						relevance,
-						actions,
-						latency: geminiMs,
-						silent: !isRelevant,
-						provenance: {
-							tier: "gate",
-							engine: GEMINI_MODEL_ID,
-							latencyMs: geminiMs,
-							relevance,
-						},
-					});
-
-					// Broadcast actions for future use
-					if (actions && actions.length > 0) {
-						broadcast({ type: "actions", actions });
-						log(
-							"info",
-							"engine",
-							`Actions suggested: ${actions.map((a) => a.type).join(", ")}`,
-						);
-					}
-
-					// Skip TTS for low-relevance observations (unless answering a question)
-					if (!isRelevant || !finalObservation) {
-						log("info", "engine", `Skipping TTS — relevance ${relevance}/10`);
-					} else if (isSilent(finalObservation)) {
-						log("info", "engine", "Silent — skipping TTS");
+					if (state.pipeline === "gated" && !question) {
+						// Gated pipeline: System 1 decides speak/silence first; the
+						// composer only runs when the gate says speak.
+						await runGatedPipeline(current.videoBuffer);
 					} else {
-						const tts = await synthesizeSpeech(finalObservation, state.ttsEngine);
-						if (!tts) {
-							log(
-								"error",
-								"tts",
-								`All TTS engines failed — skipping audio for: ${finalObservation.slice(0, 60)}`,
-							);
-						} else {
-							if (isQuestion) {
-								state.lastAnswerTime = Date.now();
-							}
-							if (tts.provenance.fallbackFrom) {
-								log(
-									"warn",
-									"tts",
-									`Engine ${tts.provenance.fallbackFrom} failed — fallback to ${tts.provenance.engine}`,
-								);
-							}
-							log(
-								"info",
-								"tts",
-								`${tts.provenance.engine} (${tts.provenance.latencyMs}ms${tts.provenance.cached ? ", cached" : ""})`,
-							);
-							broadcast({
-								type: "audio",
-								buffer: tts.audio,
-								mimeType: tts.mimeType,
-								priority: isQuestion ? "answer" : "ambient",
-								text: finalObservation,
-								provenance: {
-									tier: "tts",
-									engine: tts.provenance.engine,
-									latencyMs: tts.provenance.latencyMs,
-									cached: tts.provenance.cached,
-									fallbackFrom: tts.provenance.fallbackFrom,
-								},
-							});
-						}
+						// Fused pipeline (baseline): one Gemini call decides AND composes.
+						// Questions always take this path — they need an answer.
+						await runFusedPipeline(current.videoBuffer, question);
 					}
 				}
 			} catch (err: unknown) {
@@ -267,6 +403,8 @@ function statusPayload() {
 	return {
 		isRunning: state.isRunning,
 		intervalMs: state.intervalMs,
+		pipeline: state.pipeline,
+		gateEngine: state.gateEngine,
 		ttsEngine: state.ttsEngine,
 		sttEngine: state.sttEngine,
 	};
@@ -295,6 +433,8 @@ export function stop() {
 export function updateConfig(config: {
 	intervalMs?: number;
 	systemPrompt?: string;
+	pipeline?: unknown;
+	gateEngine?: unknown;
 	ttsEngine?: unknown;
 	sttEngine?: unknown;
 }) {
@@ -309,6 +449,24 @@ export function updateConfig(config: {
 	if (config.systemPrompt !== undefined) {
 		state.systemPrompt = config.systemPrompt;
 		log("info", "engine", "System prompt updated");
+	}
+
+	if (config.pipeline !== undefined) {
+		const next = resolvePipeline(config.pipeline, state.pipeline);
+		if (next !== state.pipeline) {
+			state.pipeline = next;
+			log("info", "engine", `Pipeline set to ${next}`);
+		}
+	}
+
+	if (config.gateEngine !== undefined) {
+		const next = resolveGateEngine(config.gateEngine, state.gateEngine);
+		if (next !== state.gateEngine) {
+			state.gateEngine = next;
+			log("info", "engine", `Gate engine set to ${next}`);
+		} else if (!isGateEngineId(config.gateEngine)) {
+			log("warn", "engine", `Unknown gate engine "${String(config.gateEngine)}" — kept ${state.gateEngine}`);
+		}
 	}
 
 	if (config.ttsEngine !== undefined) {
@@ -369,6 +527,8 @@ export function getConfig() {
 	return {
 		intervalMs: state.intervalMs,
 		systemPrompt: state.systemPrompt,
+		pipeline: state.pipeline,
+		gateEngine: state.gateEngine,
 		ttsEngine: state.ttsEngine,
 		sttEngine: state.sttEngine,
 	};
@@ -550,6 +710,30 @@ export function updateGameState(payload: GameStatePayload): boolean {
 		priority: payload.priority,
 		timestamp: payload.timestamp,
 	});
+
+	// Reflex rules (Stage 5): canned 0ms callouts for true emergencies,
+	// bypassing the Gate and the composer entirely. Cooldown per rule.
+	const reflex = evaluateReflex(payload.data);
+	if (reflex) {
+		const last = state.reflexLastFired.get(reflex.rule) ?? 0;
+		if (Date.now() - last >= REFLEX_COOLDOWN_MS) {
+			state.reflexLastFired.set(reflex.rule, Date.now());
+			log("info", "reflex", `${reflex.rule}: ${reflex.text}`);
+			void speakToPlayer({
+				text: reflex.text,
+				relevance: 8,
+				actions: [],
+				latencyMs: 0,
+				isQuestion: false,
+				provenance: {
+					tier: "reflex",
+					engine: `rules·${reflex.rule}`,
+					latencyMs: 0,
+					relevance: 8,
+				},
+			});
+		}
+	}
 
 	// High/critical game events temporarily bypass the ambient clip cooldown:
 	// the next clip that arrives gets processed immediately instead of being

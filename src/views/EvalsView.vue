@@ -1,9 +1,15 @@
 <script setup lang="ts">
-// Evals page: the dev/test harness surface. Fixture inventory, latest run
-// results (watch the clip, judge the verdict), and drift across runs.
 import { computed, shallowRef } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import type { EvalRun, SituationDefinition } from "../../server/utils/evals";
+import type {
+	EvalRun,
+	SituationDefinition,
+	SituationResult,
+} from "../../server/utils/evals";
+import {
+	MATRIX_ENGINES,
+	type MatrixEngineId,
+} from "../../shared/eval-engines";
 
 async function fetchSituations(): Promise<SituationDefinition[]> {
 	const res = await fetch("/api/situations");
@@ -36,12 +42,29 @@ const runs = computed(() => runsQuery.data.value ?? []);
 const latestRun = computed(() => runs.value[0] ?? null);
 const isRunning = computed(() => latestRun.value?.status === "running");
 
+// --- Matrix engine selection (Stage 5) ------------------------------------
+const selectedEngines = shallowRef<MatrixEngineId[]>([
+	"fused",
+	"gate:gemini",
+	"gate:rules",
+]);
+
+function toggleEngine(id: MatrixEngineId): void {
+	const current = selectedEngines.value;
+	selectedEngines.value = current.includes(id)
+		? current.filter((engine) => engine !== id)
+		: [...current, id];
+}
+
 const startRun = useMutation({
-	mutationFn: async (judge: boolean): Promise<{ runId: string }> => {
+	mutationFn: async (input: {
+		judge: boolean;
+		engines: MatrixEngineId[];
+	}): Promise<{ runId: string }> => {
 		const res = await fetch("/api/evals/run", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ judge }),
+			body: JSON.stringify(input),
 		});
 		if (!res.ok) {
 			const payload = (await res.json().catch(() => ({}))) as { statusMessage?: string };
@@ -62,6 +85,7 @@ const setVerdict = useMutation({
 	mutationFn: async (input: {
 		runId: string;
 		situationId: string;
+		engine: string;
 		humanVerdict: "agree" | "override";
 	}): Promise<unknown> => {
 		const res = await fetch("/api/evals/verdict", {
@@ -80,6 +104,31 @@ const savingVerdict = computed(() => setVerdict.isPending.value);
 
 function passedChecks(run: EvalRun): number {
 	return run.results.filter((result) => result.passed).length;
+}
+
+/** Results of the latest run grouped per matrix engine. */
+const resultsByEngine = computed(() => {
+	const grouped = new Map<MatrixEngineId, SituationResult[]>();
+	for (const entry of latestRun.value?.results ?? []) {
+		const engine = entry.engine ?? "fused";
+		const list = grouped.get(engine) ?? [];
+		list.push(entry);
+		grouped.set(engine, list);
+	}
+	return grouped;
+});
+
+const matrixEngines = computed<MatrixEngineId[]>(
+	() => latestRun.value?.engines ?? ["fused"],
+);
+
+/** Matrix cell: pass/fail for one (situation, engine) pair. */
+function matrixCell(situationId: string, engine: MatrixEngineId) {
+	const entry = resultsByEngine.value
+		.get(engine)
+		?.find((result) => result.situationId === situationId);
+	if (!entry) return "missing" as const;
+	return entry.passed ? ("pass" as const) : ("fail" as const);
 }
 
 function formatTime(timestamp: number): string {
@@ -138,8 +187,8 @@ function formatDate(timestamp: number): string {
 							:label="isRunning ? 'Running…' : 'Run suite'"
 							icon="i-lucide-play"
 							:loading="starting"
-							:disabled="isRunning"
-							@click="startRun.mutate(judgeEnabled)"
+							:disabled="isRunning || selectedEngines.length === 0"
+							@click="startRun.mutate({ judge: judgeEnabled, engines: selectedEngines })"
 						/>
 					</div>
 				</template>
@@ -154,6 +203,24 @@ function formatDate(timestamp: number): string {
 				>
 					{{ startRun.error.value.message }}
 				</p>
+
+				<!-- Matrix engine selection -->
+				<section class="flex flex-col gap-2" aria-label="Matrix engines">
+					<h2 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
+						Engines under test
+					</h2>
+					<div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+						<UCheckbox
+							v-for="engine in MATRIX_ENGINES"
+							:key="engine.id"
+							:model-value="selectedEngines.includes(engine.id)"
+							:label="engine.label"
+							size="xs"
+							class="font-mono text-[10.5px] text-muted"
+							@update:model-value="() => toggleEngine(engine.id)"
+						/>
+					</div>
+				</section>
 
 				<!-- Fixtures: what the assistant can be tested against -->
 				<section class="flex flex-col gap-3" aria-label="Situations">
@@ -207,6 +274,107 @@ function formatDate(timestamp: number): string {
 					</p>
 				</section>
 
+				<!-- Matrix: situations × engines -->
+				<section
+					v-if="latestRun && (latestRun.engines?.length ?? 1) > 1"
+					class="flex flex-col gap-2"
+					aria-label="Engine matrix"
+				>
+					<h2 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
+						Matrix
+					</h2>
+					<div class="overflow-x-auto rounded-md border border-default">
+						<table class="w-full border-collapse font-mono text-[11px] tabular-nums">
+							<thead>
+								<tr class="border-b border-default bg-elevated text-left">
+									<th class="px-3 py-2 font-normal tracking-[0.08em] text-dimmed uppercase text-[9.5px]">
+										Situation
+									</th>
+									<th
+										v-for="engine in matrixEngines"
+										:key="engine"
+										class="px-3 py-2 font-normal tracking-[0.08em] text-dimmed uppercase text-[9.5px]"
+									>
+										{{ engine }}
+									</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr
+									v-for="situation in situations"
+									:key="situation.id"
+									class="border-b border-default last:border-b-0"
+								>
+									<td class="px-3 py-2 text-highlighted">{{ situation.id }}</td>
+									<td
+										v-for="engine in matrixEngines"
+										:key="engine"
+										class="px-3 py-2"
+									>
+										<span
+											v-if="matrixCell(situation.id, engine) !== 'missing'"
+											:class="matrixCell(situation.id, engine) === 'pass'
+												? 'text-success'
+												: 'text-error'"
+										>
+											{{ matrixCell(situation.id, engine) === "pass" ? "PASS" : "FAIL" }}
+										</span>
+										<span v-else class="text-dimmed">n/a</span>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+
+					<!-- Per-engine scorecards -->
+					<div class="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+						<div
+							v-for="summary in latestRun.engineSummaries ?? []"
+							:key="summary.engine"
+							class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated p-3 font-mono text-[10.5px] tabular-nums"
+						>
+							<div class="flex items-center justify-between">
+								<span class="text-highlighted">{{ summary.engine }}</span>
+								<UBadge
+									:color="summary.passed === summary.total ? 'success' : 'error'"
+									variant="subtle"
+									size="sm"
+								>
+									{{ summary.passed }}/{{ summary.total }}
+								</UBadge>
+							</div>
+							<template v-if="summary.unavailable">
+								<span class="text-warning break-words">{{ summary.unavailable }}</span>
+							</template>
+							<template v-else>
+								<span class="text-muted">
+									speak recall
+									<span class="text-highlighted">
+										{{ summary.speakRecall?.spoke ?? 0 }}/{{ summary.speakRecall?.expected ?? 0 }}
+									</span>
+								</span>
+								<span class="text-muted">
+									silence precision
+									<span class="text-highlighted">
+										{{ summary.silencePrecision?.stayedSilent ?? 0 }}/{{ summary.silencePrecision?.expected ?? 0 }}
+									</span>
+								</span>
+								<span class="text-muted">
+									avg latency
+									<span class="text-highlighted">{{ Math.round(summary.avgLatencyMs ?? 0) }}ms</span>
+								</span>
+								<span class="text-muted">
+									confidence
+									<span class="text-highlighted">
+										ok {{ summary.calibration.onCorrect?.toFixed(2) ?? "n/a" }} ·
+										miss {{ summary.calibration.onIncorrect?.toFixed(2) ?? "n/a" }}
+									</span>
+								</span>
+							</template>
+						</div>
+					</div>
+				</section>
+
 				<!-- Latest run: watch the clip, judge the verdict -->
 				<section class="flex flex-col gap-3" aria-label="Latest run">
 					<div class="flex flex-wrap items-center justify-between gap-2">
@@ -216,7 +384,7 @@ function formatDate(timestamp: number): string {
 						<span v-if="latestRun" class="font-mono text-[10.5px] tabular-nums text-dimmed">
 							{{ formatDate(latestRun.startedAt) }} {{ formatTime(latestRun.startedAt) }}
 							<span aria-hidden="true">·</span>
-							{{ latestRun.engine }}
+							{{ (latestRun.engines ?? [latestRun.engine]).join(", ") }}
 							<template v-if="latestRun.judge">
 								<span aria-hidden="true">·</span>
 								judged
@@ -230,7 +398,7 @@ function formatDate(timestamp: number): string {
 					>
 						<div
 							v-for="result in latestRun.results"
-							:key="result.situationId"
+							:key="`${result.engine ?? 'fused'}:${result.situationId}`"
 							class="flex flex-col gap-2.5 rounded-md border p-3.5"
 							:class="result.passed ? 'border-default bg-elevated' : 'border-error/40 bg-error/5'"
 						>
@@ -245,6 +413,14 @@ function formatDate(timestamp: number): string {
 										{{ result.passed ? "PASS" : "FAIL" }}
 									</UBadge>
 									<span class="font-mono text-[11.5px] text-highlighted">{{ result.situationId }}</span>
+									<UBadge
+										color="neutral"
+										variant="outline"
+										size="sm"
+										class="font-mono"
+									>
+										{{ result.engine ?? "fused" }}
+									</UBadge>
 								</div>
 								<div class="flex items-center gap-1.5">
 									<UBadge
@@ -262,14 +438,14 @@ function formatDate(timestamp: number): string {
 											color="neutral"
 											variant="soft"
 											:loading="savingVerdict"
-											@click="setVerdict.mutate({ runId: latestRun.id, situationId: result.situationId, humanVerdict: 'agree' })"
+											@click="setVerdict.mutate({ runId: latestRun.id, situationId: result.situationId, engine: result.engine ?? 'fused', humanVerdict: 'agree' })"
 										/>
 										<UButton
 											label="Override"
 											color="warning"
 											variant="soft"
 											:loading="savingVerdict"
-											@click="setVerdict.mutate({ runId: latestRun.id, situationId: result.situationId, humanVerdict: 'override' })"
+											@click="setVerdict.mutate({ runId: latestRun.id, situationId: result.situationId, engine: result.engine ?? 'fused', humanVerdict: 'override' })"
 										/>
 									</UFieldGroup>
 								</div>
@@ -297,6 +473,10 @@ function formatDate(timestamp: number): string {
 									</span>
 									<span>rel {{ pass.relevance }}/10</span>
 									<span>{{ pass.latencyMs }}ms</span>
+									<template v-if="pass.gate">
+										<span>conf {{ pass.gate.confidence.toFixed(2) }}</span>
+										<span class="uppercase">{{ pass.gate.relevanceClass }} · {{ pass.gate.category }}</span>
+									</template>
 									<span v-if="pass.actions.length > 0" class="text-warning">
 										actions: {{ pass.actions.join(", ") }}
 									</span>
@@ -372,7 +552,7 @@ function formatDate(timestamp: number): string {
 								{{ formatDate(run.startedAt) }} {{ formatTime(run.startedAt) }}
 							</span>
 							<div class="flex items-center gap-3">
-								<span class="text-dimmed">{{ run.engine }}</span>
+								<span class="text-dimmed">{{ (run.engines ?? [run.engine]).join(", ") }}</span>
 								<span :class="run.summary.failed === 0 && run.status === 'done' ? 'text-success' : 'text-warning'">
 									{{ run.summary.passed }}/{{ run.summary.total }}
 								</span>
