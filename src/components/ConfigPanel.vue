@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
 import {
+	COMPOSER_ENGINE_OPTIONS,
 	GATE_ENGINE_OPTIONS,
 	PIPELINE_OPTIONS,
 	STT_ENGINE_OPTIONS,
@@ -24,6 +25,8 @@ const {
 	source,
 	pipeline,
 	gateEngine,
+	composerEngine,
+	profile,
 	ttsEngine,
 	sttEngine,
 } = storeToRefs(session);
@@ -43,7 +46,11 @@ interface EngineAvailability {
 async function fetchAvailability() {
 	const res = await fetch("/api/engines/availability");
 	if (!res.ok) throw new Error(`Availability check failed (${res.status})`);
-	return res.json() as Promise<{ tts: EngineAvailability[]; stt: EngineAvailability[] }>;
+	return res.json() as Promise<{
+		tts: EngineAvailability[];
+		stt: EngineAvailability[];
+		composer: EngineAvailability[];
+	}>;
 }
 
 const availabilityQuery = useQuery({
@@ -60,8 +67,12 @@ function availabilityFor(
 
 const ttsAvailability = computed(() => availabilityQuery.data.value?.tts);
 const sttAvailability = computed(() => availabilityQuery.data.value?.stt);
+const composerAvailability = computed(() => availabilityQuery.data.value?.composer);
 const ttsStatus = computed(() => availabilityFor(ttsAvailability.value, ttsEngine.value));
 const sttStatus = computed(() => availabilityFor(sttAvailability.value, sttEngine.value));
+const composerStatus = computed(() =>
+	availabilityFor(composerAvailability.value, composerEngine.value),
+);
 
 // Dropdown options get a "not detected" mark so the operator sees the state
 // before selecting.
@@ -79,6 +90,9 @@ function markItems(
 
 const ttsItems = computed(() => markItems(TTS_ENGINE_OPTIONS, ttsAvailability.value));
 const sttItems = computed(() => markItems(STT_ENGINE_OPTIONS, sttAvailability.value));
+const composerItems = computed(() =>
+	markItems(COMPOSER_ENGINE_OPTIONS, composerAvailability.value),
+);
 
 // Copyable setup commands for local engines (cloud engines only need env vars).
 const SETUP_COMMANDS: Record<string, string> = {
@@ -393,6 +407,40 @@ function save() {
 			</UFormField>
 
 			<div class="flex flex-col gap-3.5">
+				<div class="flex items-center justify-between">
+					<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">
+						Profile
+					</span>
+					<UBadge
+						:color="profile === 'offline' ? 'success' : profile === 'cloud' ? 'info' : 'neutral'"
+						variant="subtle"
+						size="sm"
+						class="font-mono uppercase"
+					>
+						{{ profile }}
+					</UBadge>
+				</div>
+				<UFieldGroup size="xs">
+					<UButton
+						label="Offline"
+						icon="i-lucide-wifi-off"
+						:color="profile === 'offline' ? 'primary' : 'neutral'"
+						:variant="profile === 'offline' ? 'subtle' : 'soft'"
+						:disabled="!serverConnected"
+						block
+						@click="session.setProfile('offline')"
+					/>
+					<UButton
+						label="Cloud"
+						icon="i-lucide-cloud"
+						:color="profile === 'cloud' ? 'info' : 'neutral'"
+						:variant="profile === 'cloud' ? 'subtle' : 'soft'"
+						:disabled="!serverConnected"
+						block
+						@click="session.setProfile('cloud')"
+					/>
+				</UFieldGroup>
+
 				<UFormField
 					label="Pipeline"
 					class="flex flex-col gap-2"
@@ -424,6 +472,38 @@ function save() {
 						aria-label="Gate engine"
 						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('gate', v) }"
 					/>
+				</UFormField>
+
+				<UFormField
+					v-if="pipeline === 'gated'"
+					label="Composer engine"
+					class="flex flex-col gap-2"
+					:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+				>
+					<USelect
+						:model-value="composerEngine"
+						:items="composerItems"
+						:disabled="!serverConnected"
+						size="sm"
+						class="font-mono text-xs"
+						aria-label="Composer engine"
+						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('composer', v) }"
+					/>
+					<p
+						v-if="composerStatus"
+						class="font-mono text-[10px]"
+						:class="composerStatus.available ? 'text-success/80' : 'text-warning'"
+					>
+						{{ composerStatus.available ? "✓ ready" : "✗ not detected" }}
+					</p>
+					<div
+						v-if="composerStatus && !composerStatus.available && composerStatus.setupHint"
+						class="rounded-md border border-warning/40 bg-warning/5 p-2.5"
+					>
+						<p class="text-[11.5px] leading-relaxed text-muted">
+							{{ composerStatus.detail }}. {{ composerStatus.setupHint }}
+						</p>
+					</div>
 				</UFormField>
 
 				<UFormField

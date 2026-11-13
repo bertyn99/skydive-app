@@ -29,7 +29,9 @@ export interface ProvenanceChip {
 	fallbackFrom?: string | null;
 	/** Gated pipeline: which composer turned the gate's decision into prose. */
 	composer?: string;
+	composerEngine?: string;
 	composerLatencyMs?: number;
+	composerFallbackFrom?: string | null;
 }
 
 export interface TtsProvenance {
@@ -49,6 +51,13 @@ export const GATE_ENGINE_OPTIONS = [
 	{ label: "Self-hosted (OpenAI-compatible)", value: "local" },
 	{ label: "Reflex rules (no vision)", value: "rules" },
 ] as const;
+
+export const COMPOSER_ENGINE_OPTIONS = [
+	{ label: "Gemini (cloud composer)", value: "gemini-cloud" },
+	{ label: "Local VLM (OpenAI-compatible)", value: "local" },
+] as const;
+
+export type ProfileId = "offline" | "cloud" | "custom";
 
 export const TTS_ENGINE_OPTIONS = [
 	{ label: "ElevenLabs (cloud)", value: "elevenlabs" },
@@ -109,9 +118,11 @@ export const useSessionStore = defineStore("session", () => {
 	const lastDescription = shallowRef<string | null>(null);
 	const lastProvenance = shallowRef<ProvenanceChip | null>(null);
 
-	// Engine seams (Stage 4/5) — mirrored from the server's status broadcasts
+	// Engine seams (Stage 4/5/6) — mirrored from the server's status broadcasts
 	const pipeline = shallowRef<string>("fused");
 	const gateEngine = shallowRef<string>("gemini");
+	const composerEngine = shallowRef<string>("gemini-cloud");
+	const profile = shallowRef<ProfileId>("cloud");
 	const ttsEngine = shallowRef<string>("elevenlabs");
 	const sttEngine = shallowRef<string>("elevenlabs");
 
@@ -508,6 +519,16 @@ export const useSessionStore = defineStore("session", () => {
 				if (typeof data.gateEngine === "string") {
 					gateEngine.value = data.gateEngine;
 				}
+				if (typeof data.composerEngine === "string") {
+					composerEngine.value = data.composerEngine;
+				}
+				if (
+					data.profile === "offline" ||
+					data.profile === "cloud" ||
+					data.profile === "custom"
+				) {
+					profile.value = data.profile;
+				}
 				if (typeof data.ttsEngine === "string") {
 					ttsEngine.value = data.ttsEngine;
 				}
@@ -542,13 +563,19 @@ export const useSessionStore = defineStore("session", () => {
 		}
 	}
 
-	function setEngines(kind: "pipeline" | "gate" | "tts" | "stt", engine: string): void {
+	function setEngines(
+		kind: "pipeline" | "gate" | "composer" | "tts" | "stt",
+		engine: string,
+	): void {
 		if (kind === "pipeline") {
 			pipeline.value = engine;
 			sendCommand("setPipeline", engine);
 		} else if (kind === "gate") {
 			gateEngine.value = engine;
 			sendCommand("setGateEngine", engine);
+		} else if (kind === "composer") {
+			composerEngine.value = engine;
+			sendCommand("setComposerEngine", engine);
 		} else if (kind === "tts") {
 			ttsEngine.value = engine;
 			sendCommand("setTtsEngine", engine);
@@ -557,6 +584,12 @@ export const useSessionStore = defineStore("session", () => {
 			sendCommand("setSttEngine", engine);
 		}
 		addLog("info", "engine", `${kind.toUpperCase()} engine set to ${engine}`);
+	}
+
+	/** One-shot profiles (Stage 6): the server flips every seam atomically. */
+	function setProfile(profile: "offline" | "cloud"): void {
+		sendCommand("setProfile", profile);
+		addLog("info", "engine", `Profile set to ${profile}`);
 	}
 
 	return {
@@ -573,6 +606,8 @@ export const useSessionStore = defineStore("session", () => {
 		lastProvenance,
 		pipeline,
 		gateEngine,
+		composerEngine,
+		profile,
 		ttsEngine,
 		sttEngine,
 		isPlaying,
@@ -594,6 +629,7 @@ export const useSessionStore = defineStore("session", () => {
 		setSource,
 		setVideoFileStream,
 		setEngines,
+		setProfile,
 		startVoice,
 		stopVoice,
 		stopCurrentAudio,

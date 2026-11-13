@@ -30,6 +30,13 @@ import {
 	synthesizeSpeech,
 	type TtsEngineId,
 } from "../voice";
+import {
+	compose,
+	type ComposerEngineId,
+	defaultComposerEngine,
+	isComposerEngineId,
+	resolveComposerEngine,
+} from "../composer";
 import { isSilent } from "./silence";
 import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
@@ -43,6 +50,7 @@ interface EngineState {
 	systemPrompt: string;
 	pipeline: PipelineMode;
 	gateEngine: GateEngineId;
+	composerEngine: ComposerEngineId;
 	ttsEngine: TtsEngineId;
 	sttEngine: SttEngineId;
 	clients: Set<Peer>;
@@ -72,6 +80,7 @@ const state: EngineState = {
 	systemPrompt: "",
 	pipeline: resolvePipeline(process.env.PIPELINE, "fused"),
 	gateEngine: resolveGateEngine(process.env.GATE_ENGINE, "gemini"),
+	composerEngine: resolveComposerEngine(process.env.COMPOSER_ENGINE, defaultComposerEngine()),
 	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, defaultTtsEngine()),
 	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "elevenlabs"),
 	clients: new Set(),
@@ -162,7 +171,9 @@ async function speakToPlayer(input: {
 		latencyMs: number;
 		relevance: number;
 		composer?: string;
+		composerEngine?: string;
 		composerLatencyMs?: number;
+		composerFallbackFrom?: string | null;
 	};
 }): Promise<void> {
 	const isRelevant = input.isQuestion || input.relevance >= 4;
@@ -298,24 +309,55 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 		return;
 	}
 
-	// Escalation: compose through the cloud composer (Stage 6 swaps in a
-	// local composer when the policy routes there). The gate's summary rides
-	// along as a hint so the composer aligns with the decision it paid for.
+	// Escalation: compose through the composer seam (Stage 6). The gate's
+	// summary rides along as the intention so the composition aligns with
+	// the decision it paid for. Falls down the composer chain on failure
+	// (e.g. local VLM down → cloud composer).
 	const composerStart = Date.now();
-	const { response } = await describeVideo(
-		videoBuffer,
-		state.systemPrompt || undefined,
-		state.connector || undefined,
-		undefined,
-		"video/webm",
-		decision.summary || undefined,
+	const composer = await compose(
+		{
+			clip: { buffer: videoBuffer, mediaType: "video/webm" },
+			history: getHistory(),
+			modContext,
+			systemPrompt: state.systemPrompt || undefined,
+			intention: { summary: decision.summary },
+		},
+		state.composerEngine,
 	);
 	const composerMs = Date.now() - composerStart;
 
+	if (!composer) {
+		// Every composer engine failed — record the tombstone and stay
+		// silent rather than looping gate-speak → failed-compose.
+		if (decision.summary) {
+			addToHistory(decision.summary, RELEVANCE_VALUE[decision.relevance]);
+		}
+		log(
+			"error",
+			"composer",
+			`All composer engines failed — tombstone recorded: "${decision.summary}"`,
+		);
+		await speakToPlayer({
+			text: null,
+			relevance: RELEVANCE_VALUE[decision.relevance],
+			actions: [],
+			latencyMs: gateMs + composerMs,
+			isQuestion: false,
+			provenance: {
+				tier: "gate",
+				engine: `${state.gateEngine}·${gateProv.modelId}`,
+				latencyMs: gateMs,
+				relevance: RELEVANCE_VALUE[decision.relevance],
+				composer: state.composerEngine,
+				composerLatencyMs: composerMs,
+			},
+		});
+		return;
+	}
+
+	const observation = composer.observation;
 	const composed =
-		response.observation !== null &&
-		!isSilent(response.observation) &&
-		response.relevance >= 4;
+		observation !== null && !isSilent(observation) && composer.relevance >= 4;
 	if (!composed && decision.summary) {
 		// Composer vetoed the gate. Nothing entered the real history, so the
 		// next identical clip would re-trigger gate-speak → composer call,
@@ -328,11 +370,23 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 			`Composer vetoed the gate — tombstone recorded: "${decision.summary}"`,
 		);
 	}
+	if (composer.provenance.fallbackFrom) {
+		log(
+			"warn",
+			"composer",
+			`Engine ${composer.provenance.fallbackFrom} failed — fallback to ${composer.provenance.engine}`,
+		);
+	}
+	log(
+		"info",
+		"composer",
+		`${composer.provenance.engine}/${composer.provenance.modelId} (${composer.provenance.latencyMs}ms): relevance=${composer.relevance}, observation=${observation ?? "(silent)"}`,
+	);
 
 	await speakToPlayer({
-		text: response.observation,
-		relevance: response.relevance,
-		actions: response.actions,
+		text: observation,
+		relevance: composer.relevance,
+		actions: composer.actions,
 		latencyMs: gateMs + composerMs,
 		isQuestion: false,
 		provenance: {
@@ -341,9 +395,11 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 			latencyMs: gateMs,
 			// Effective outcome (what actually reached the player), not the
 			// gate's intention.
-			relevance: response.relevance,
-			composer: GEMINI_MODEL_ID,
-			composerLatencyMs: composerMs,
+			relevance: composer.relevance,
+			composer: composer.provenance.modelId,
+			composerEngine: composer.provenance.engine,
+			composerLatencyMs: composer.provenance.latencyMs,
+			composerFallbackFrom: composer.provenance.fallbackFrom,
 		},
 	});
 }
@@ -427,9 +483,62 @@ function statusPayload() {
 		intervalMs: state.intervalMs,
 		pipeline: state.pipeline,
 		gateEngine: state.gateEngine,
+		composerEngine: state.composerEngine,
 		ttsEngine: state.ttsEngine,
 		sttEngine: state.sttEngine,
+		profile: activeProfile(),
 	};
+}
+
+/**
+ * Derived profile label for the dashboard: "offline" when every seam routes
+ * locally, "cloud" when the pipeline runs on cloud engines, "custom" otherwise.
+ */
+function activeProfile(): "offline" | "cloud" | "custom" {
+	const offline =
+		state.pipeline === "gated" &&
+		state.gateEngine === "local" &&
+		state.composerEngine === "local" &&
+		state.ttsEngine === "piper-local" &&
+		state.sttEngine === "whisper-local";
+	if (offline) return "offline";
+	const cloud =
+		state.pipeline === "fused" &&
+		state.gateEngine === "gemini" &&
+		state.composerEngine === "gemini-cloud" &&
+		state.ttsEngine === "elevenlabs" &&
+		state.sttEngine === "elevenlabs";
+	if (cloud) return "cloud";
+	return "custom";
+}
+
+/**
+ * One-shot profiles (Stage 6): flip every seam at once. Engines that are
+ * unavailable right now are still set — the dashboard shows their setup
+ * hints, and availability can change without re-applying the profile.
+ */
+export function applyProfile(profile: unknown): void {
+	if (profile === "offline") {
+		updateConfig({
+			pipeline: "gated",
+			gateEngine: "local",
+			composerEngine: "local",
+			ttsEngine: "piper-local",
+			sttEngine: "whisper-local",
+		});
+		log("info", "engine", "Offline profile applied (gate/composer/tts/stt → local)");
+	} else if (profile === "cloud") {
+		updateConfig({
+			pipeline: "fused",
+			gateEngine: "gemini",
+			composerEngine: "gemini-cloud",
+			ttsEngine: "elevenlabs",
+			sttEngine: "elevenlabs",
+		});
+		log("info", "engine", "Cloud profile applied (gate/composer/tts/stt → cloud)");
+	} else {
+		log("warn", "engine", `Unknown profile: ${String(profile)}`);
+	}
 }
 
 export function start() {
@@ -457,6 +566,7 @@ export function updateConfig(config: {
 	systemPrompt?: string;
 	pipeline?: unknown;
 	gateEngine?: unknown;
+	composerEngine?: unknown;
 	ttsEngine?: unknown;
 	sttEngine?: unknown;
 }) {
@@ -488,6 +598,16 @@ export function updateConfig(config: {
 			log("info", "engine", `Gate engine set to ${next}`);
 		} else if (!isGateEngineId(config.gateEngine)) {
 			log("warn", "engine", `Unknown gate engine "${String(config.gateEngine)}" — kept ${state.gateEngine}`);
+		}
+	}
+
+	if (config.composerEngine !== undefined) {
+		const next = resolveComposerEngine(config.composerEngine, state.composerEngine);
+		if (next !== state.composerEngine) {
+			state.composerEngine = next;
+			log("info", "engine", `Composer engine set to ${next}`);
+		} else if (!isComposerEngineId(config.composerEngine)) {
+			log("warn", "engine", `Unknown composer engine "${String(config.composerEngine)}" — kept ${state.composerEngine}`);
 		}
 	}
 
@@ -551,8 +671,10 @@ export function getConfig() {
 		systemPrompt: state.systemPrompt,
 		pipeline: state.pipeline,
 		gateEngine: state.gateEngine,
+		composerEngine: state.composerEngine,
 		ttsEngine: state.ttsEngine,
 		sttEngine: state.sttEngine,
+		profile: activeProfile(),
 	};
 }
 

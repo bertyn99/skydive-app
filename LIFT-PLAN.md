@@ -111,13 +111,33 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
       until hosted, the `local` adapter accepts any vision-capable
       OpenAI-compatible model.
 
-## Stage 6 — Local Composer + full-local mode (System 2)
+## Stage 6 — Local Composer + full-local mode (System 2) — ✅ shipped (cloud/local picker + offline profile)
 
-- [ ] Local VLM composer via `@ai-sdk/openai-compatible` (Ollama/LM Studio, e.g. Qwen2.5-VL):
-      structured facts → short French observation; questions may stay cloud.
-- [ ] Engine picker UI (gate/composer/tts/stt × cloud/local) + offline profile.
-- [ ] Local decision model as Labs option (Clef-flash 9B open weights need their custom
-      schema head — bleeding edge; hosted Workers AI Clef-flash is the pragmatic default).
+- [x] Composer module (`server/composer/`) — architecture mirrors
+      `server/voice/`: public API (`index.ts`), `config.ts` (env knobs +
+      compose contract + prompts), `providers/` (one file per engine),
+      `service.ts` (registry + `COMPOSER_CHAIN` fallback chain with
+      provenance: engine, modelId, fallbackFrom, latency).
+- [x] Composer engines: `gemini-cloud` (compose-only Gemini call — the
+      decision was made upstream, plus operator prompt override support)
+      and `local` (self-hosted vision model behind an OpenAI-compatible
+      endpoint — Ollama/LM Studio/vLLM, `COMPOSER_LOCAL_BASE_URL/MODEL`,
+      e.g. Qwen2.5-VL). Availability probes feed the dashboard.
+- [x] Gated pipeline composes through the seam: gate summary becomes the
+      composer's intention; composer veto still records a history tombstone;
+      all-engines-failed records a tombstone + broadcast SILENCE. Provenance
+      chip carries gate + composer engine/model/fallback/latency, showing the
+      effective relevance (what reached the player).
+- [x] Engine picker UI: composer engine select in the Session panel (gated
+      pipelines), availability + setup hints from the composer registry;
+      **offline profile** button flips every seam atomically (pipeline gated,
+      gate local, composer local, tts piper-local, stt whisper-local) with a
+      cloud profile restoring the baseline; derived profile badge
+      (offline/cloud/custom).
+- [x] Questions still route through the fused cloud path in this stage
+      (they need a model that can answer, not just compose); offline question
+      answering lands with the Electron runtime work.
+- [ ] Clef-flash as the hosted decision model stays tracked on YGG-237.
 
 ## Stage 7 — Player runtime (Electron shell) — triggered by first blind playtest
 

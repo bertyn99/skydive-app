@@ -59,6 +59,14 @@ _Avoid_: shortcuts, hardcoded responses
 **Matrix run**:
 An Eval run that scores the same Situations across several engines (fused baseline, gate engines), producing per-engine scorecards: accuracy, speak recall, silence precision, latency, confidence calibration. The Gate ships only when the matrix says it beats or matches the fused baseline.
 _Avoid_: A/B test, comparison run
+
+**Composer** (System 2):
+The layer that turns a Gate decision into the spoken sentence. Engines: `gemini-cloud` (compose-only call) and `local` (self-hosted vision model behind an OpenAI-compatible endpoint). It never re-decides whether to speak; if it cannot see the clip it says so honestly (SILENCE + tombstone). Lives in `server/composer/`, architected like the voice module.
+_Avoid_: generator, writer, narrator
+
+**Offline profile**:
+A one-shot engine configuration that routes every seam locally: gated pipeline, local gate, local composer, piper TTS, whisper STT. The cloud profile restores the baseline. Engines that are unavailable stay selected with their setup hints — availability can change without re-applying.
+_Avoid_: offline mode (unqualified), airplane mode
 _Avoid_: benchmark, CI test
 
 **Reflex**:

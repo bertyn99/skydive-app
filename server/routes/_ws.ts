@@ -8,6 +8,7 @@ import {
 	stop,
 	unregisterClient,
 	updateConfig,
+	applyProfile,
 } from "../utils/engine";
 
 const CLIP_FRAME_TYPE = 1;
@@ -91,6 +92,16 @@ export default defineWebSocketHandler({
 				case "setGateEngine":
 					if (typeof data.value === "string") {
 						updateConfig({ gateEngine: data.value });
+					}
+					break;
+				case "setComposerEngine":
+					if (typeof data.value === "string") {
+						updateConfig({ composerEngine: data.value });
+					}
+					break;
+				case "setProfile":
+					if (typeof data.value === "string") {
+						applyProfile(data.value);
 					}
 					break;
 				case "setSttEngine":
