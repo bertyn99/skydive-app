@@ -9,6 +9,7 @@ import { z } from "zod/v4";
 import { GEMINI_MODEL, GEMINI_MODEL_ID } from "./gemini";
 import type { GameStateData } from "./protocol";
 import { evaluateReflex } from "./reflex";
+import { parseSkyrimState } from "./skyrim-state-parser";
 
 /**
  * Decision-model Gate (LIFT-PLAN Stage 5, System 1). Decides WHETHER the
@@ -156,16 +157,42 @@ function historyText(history: string[]): string {
 	return `Déjà dit au joueur (NE PAS répéter) :\n${history.map((line) => `- ${line}`).join("\n")}`;
 }
 
+interface NormalizedModContext {
+	/** Text for prompt-based engines (parseSkyrimState output for raw JSON). */
+	text: string | null;
+	/** Raw object for the rules engine (null when only text was supplied). */
+	raw: Record<string, unknown> | null;
+}
+
+/**
+ * Mod context arrives either as parseSkyrimState text (live pipeline) or as
+ * the fixture's raw JSON (eval matrix). Normalize once so every engine gets
+ * the shape it needs: prompt engines interpolate text, the rules engine
+ * coerces the object. Without this, gemini renders raw records as
+ * "[object Object]" and rules silently discards string context.
+ */
+function normalizeModContext(
+	modContext: string | Record<string, unknown> | null | undefined,
+): NormalizedModContext {
+	if (!modContext) return { text: null, raw: null };
+	if (typeof modContext === "string") {
+		return { text: modContext, raw: null };
+	}
+	if (Object.keys(modContext).length === 0) return { text: null, raw: modContext };
+	return { text: parseSkyrimState(modContext), raw: modContext };
+}
+
 function decisionSystemMessages(
+	ctx: NormalizedModContext,
 	opts: ExperimentalDecideOptions,
 ): SystemModelMessage[] {
 	const system: SystemModelMessage[] = [
 		{ role: "system", content: GATE_SYSTEM_PROMPT },
 	];
-	if (opts.modContext) {
+	if (ctx.text) {
 		system.push({
 			role: "system",
-			content: `## ÉTAT DU MOD SKYRIM (temps réel)\n${opts.modContext}`,
+			content: `## ÉTAT DU MOD SKYRIM (temps réel)\n${ctx.text}`,
 		});
 	}
 	system.push({
@@ -204,6 +231,7 @@ async function geminiGate(
 	videoBuffer: Buffer,
 	mediaType: string,
 	opts: ExperimentalDecideOptions,
+	ctx: NormalizedModContext,
 ): Promise<GateResult> {
 	const start = Date.now();
 	const { output } = await generateText({
@@ -212,7 +240,7 @@ async function geminiGate(
 		abortSignal: AbortSignal.timeout(GATE_TIMEOUT_MS),
 		// Google provider: system role goes through `instructions`, never
 		// inside `messages` (Invalid prompt otherwise).
-		instructions: decisionSystemMessages(opts),
+		instructions: decisionSystemMessages(ctx, opts),
 		messages: [geminiUserMessage(videoBuffer, mediaType, opts)],
 	});
 	return {
@@ -238,6 +266,7 @@ async function localGate(
 	videoBuffer: Buffer,
 	mediaType: string,
 	opts: ExperimentalDecideOptions,
+	ctx: NormalizedModContext,
 ): Promise<GateResult> {
 	const start = Date.now();
 	const provider = createOpenAICompatible({
@@ -255,7 +284,7 @@ async function localGate(
 		model: provider(GATE_LOCAL_MODEL),
 		abortSignal: AbortSignal.timeout(GATE_TIMEOUT_MS),
 		messages: [
-			...decisionSystemMessages(opts),
+			...decisionSystemMessages(ctx, opts),
 			{
 				role: "user",
 				content: [
@@ -287,10 +316,16 @@ function coerceGameState(raw: unknown): GameStateData | null {
 	if (!raw || typeof raw !== "object") return null;
 	const candidate = raw as Partial<GameStateData>;
 	if (!candidate.player || typeof candidate.player !== "object") return null;
+	// Reflex rules dereference enemies/combatState — a context without them
+	// must fall back to clip-blind silence, not throw mid-decision.
+	if (!Array.isArray(candidate.enemies)) return null;
 	return candidate as GameStateData;
 }
 
-function rulesGate(opts: ExperimentalDecideOptions): GateResult {
+function rulesGate(
+	opts: ExperimentalDecideOptions,
+	ctx: NormalizedModContext,
+): GateResult {
 	const start = Date.now();
 
 	if (opts.question) {
@@ -307,7 +342,7 @@ function rulesGate(opts: ExperimentalDecideOptions): GateResult {
 		};
 	}
 
-	const state = coerceGameState(opts.modContext);
+	const state = coerceGameState(ctx.raw);
 	if (!state) {
 		// Clip-blind by design: no mod context, no evidence, no speech.
 		return {
@@ -384,13 +419,14 @@ export async function experimental_decide(
 	engine: GateEngineId,
 	opts: ExperimentalDecideOptions = {},
 ): Promise<GateResult> {
+	const ctx = normalizeModContext(opts.modContext);
 	switch (engine) {
 		case "gemini":
-			return geminiGate(videoBuffer, mediaType, opts);
+			return geminiGate(videoBuffer, mediaType, opts, ctx);
 		case "local":
-			return localGate(videoBuffer, mediaType, opts);
+			return localGate(videoBuffer, mediaType, opts, ctx);
 		case "rules":
-			return rulesGate(opts);
+			return rulesGate(opts, ctx);
 		default: {
 			const exhaustive: never = engine;
 			throw new Error(`Unknown gate engine: ${String(exhaustive)}`);

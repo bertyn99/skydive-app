@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3";
-import { getActiveRun, startRun } from "../../utils/evals";
+import { getActiveRun, isMatrixEngineId, startRun } from "../../utils/evals";
 
 /**
  * Starts an eval run. Body: `{ ids?: string[] }` (all situations when
@@ -22,6 +22,21 @@ export default defineEventHandler(async (event) => {
 	const engines = Array.isArray(body?.engines)
 		? body.engines.filter((engine): engine is string => typeof engine === "string")
 		: undefined;
+	if (engines) {
+		const invalid = engines.filter((engine) => !isMatrixEngineId(engine));
+		if (invalid.length > 0) {
+			throw createError({
+				statusCode: 400,
+				statusMessage: `Unknown engines: ${invalid.join(", ")}`,
+			});
+		}
+		if (engines.length === 0) {
+			throw createError({
+				statusCode: 400,
+				statusMessage: "No engines selected",
+			});
+		}
+	}
 
 	try {
 		const run = await startRun(ids, judge, engines);

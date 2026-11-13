@@ -603,70 +603,43 @@ async function evaluateGatePass(
 			detail: `gate says isNew=${decision.isNew}, expected ${expectedNew}`,
 		});
 
+		let judge: JudgeVerdict | undefined;
+		let judgeError: string | undefined;
 		if (judgeEnabled) {
 			try {
-				checks.push({
-					name: "gateLatency",
-					tier: "decision",
-					passed: true,
-					detail: `${latencyMs}ms (confidence ${decision.confidence.toFixed(2)})`,
-				});
-				const judge = await judgeObservation(clip.buffer, clip.mimeType, {
+				judge = await judgeObservation(clip.buffer, clip.mimeType, {
 					expectation,
 					description: def.description,
 					observation: spoken ? (observation ?? decision.summary) : null,
 					relevance,
 				});
-				return {
-					pass,
-					expectation,
-					observation,
-					spoken,
-					relevance,
-					actions: [],
-					latencyMs,
-					checks,
-					verdict: checks
-						.filter((check) => check.name !== "gateLatency")
-						.every((check) => check.passed)
-						? "pass"
-						: "fail",
-					judge,
-					engine,
-					gate: {
-						shouldSpeak: decision.shouldSpeak,
-						isNew: decision.isNew,
-						relevanceClass: decision.relevance,
-						category: decision.category,
-						confidence: decision.confidence,
-						policyReason: policy.reason,
-					},
-				};
 			} catch (err) {
-				return gatePassResult(pass, expectation, {
-					observation,
-					spoken,
-					relevance,
-					latencyMs,
-					checks,
-					engine,
-					decision,
-					policyReason: policy.reason,
-					judgeError: err instanceof Error ? err.message : String(err),
-				});
+				judgeError = err instanceof Error ? err.message : String(err);
 			}
 		}
 
-		return gatePassResult(pass, expectation, {
+		return {
+			pass,
+			expectation,
 			observation,
 			spoken,
 			relevance,
+			actions: [],
 			latencyMs,
 			checks,
+			verdict: checks.every((check) => check.passed) ? "pass" : "fail",
+			judge,
+			judgeError,
 			engine,
-			decision,
-			policyReason: policy.reason,
-		});
+			gate: {
+				shouldSpeak: decision.shouldSpeak,
+				isNew: decision.isNew,
+				relevanceClass: decision.relevance,
+				category: decision.category,
+				confidence: decision.confidence,
+				policyReason: policy.reason,
+			},
+		};
 	} catch (err) {
 		return {
 			pass,
@@ -682,49 +655,6 @@ async function evaluateGatePass(
 			engine,
 		};
 	}
-}
-
-interface GatePassFields {
-	observation: string | null;
-	spoken: boolean;
-	relevance: number;
-	latencyMs: number;
-	checks: CheckResult[];
-	engine: MatrixEngineId;
-	decision: import("./gate").GateDecision;
-	policyReason: string;
-	judgeError?: string;
-}
-
-function gatePassResult(
-	pass: number,
-	expectation: Expectation,
-	fields: GatePassFields,
-): PassResult {
-	const decisionChecks = fields.checks.filter(
-		(check) => check.name !== "gateLatency",
-	);
-	return {
-		pass,
-		expectation,
-		observation: fields.observation,
-		spoken: fields.spoken,
-		relevance: fields.relevance,
-		actions: [],
-		latencyMs: fields.latencyMs,
-		checks: fields.checks,
-		verdict: decisionChecks.every((check) => check.passed) ? "pass" : "fail",
-		judgeError: fields.judgeError,
-		engine: fields.engine,
-		gate: {
-			shouldSpeak: fields.decision.shouldSpeak,
-			isNew: fields.decision.isNew,
-			relevanceClass: fields.decision.relevance,
-			category: fields.decision.category,
-			confidence: fields.decision.confidence,
-			policyReason: fields.policyReason,
-		},
-	};
 }
 
 async function evaluateSituation(
@@ -801,7 +731,11 @@ function normalizeRun(run: EvalRun): EvalRun {
 	};
 }
 
-function computeEngineSummary(run: EvalRun, engine: MatrixEngineId): EngineSummary {
+function computeEngineSummary(
+	run: EvalRun,
+	engine: MatrixEngineId,
+	unavailableReason?: string,
+): EngineSummary {
 	const results = run.results.filter((entry) => normalizeEngineId(entry.engine) === engine);
 	const passes = results.flatMap((entry) => entry.passes);
 
@@ -837,6 +771,7 @@ function computeEngineSummary(run: EvalRun, engine: MatrixEngineId): EngineSumma
 			onCorrect: mean(correct.map((pass) => pass.gate!.confidence)),
 			onIncorrect: mean(incorrect.map((pass) => pass.gate!.confidence)),
 		},
+		unavailable: unavailableReason,
 	};
 }
 
@@ -946,7 +881,9 @@ export async function startRun(
 				}
 			}
 			run.status = "done";
-			run.engineSummaries = engines.map((engine) => computeEngineSummary(run, engine));
+			run.engineSummaries = engines.map((engine) =>
+				computeEngineSummary(run, engine, unavailable.get(engine)),
+			);
 		} catch (err) {
 			run.status = "error";
 			run.results.push({
@@ -1008,6 +945,11 @@ export async function setVerdict(
 	const run = await getRun(runId);
 	if (!run) throw new Error(`Unknown run: ${runId}`);
 	const targetEngine = engine ? normalizeEngineId(engine) : undefined;
+	if (targetEngine === undefined && (run.engines?.length ?? 1) > 1) {
+		throw new Error(
+			`engine is required for matrix runs (${run.engines?.join(", ")})`,
+		);
+	}
 	const result = run.results.find(
 		(entry) =>
 			entry.situationId === situationId &&

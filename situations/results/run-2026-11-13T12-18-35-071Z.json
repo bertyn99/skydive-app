@@ -1,0 +1,278 @@
+{
+	"id": "run-2026-11-13T12-18-35-071Z",
+	"startedAt": 1794572315071,
+	"finishedAt": 1794572315117,
+	"status": "done",
+	"engine": "gate:rules",
+	"engines": [
+		"gate:rules",
+		"gate:local"
+	],
+	"judge": false,
+	"summary": {
+		"total": 4,
+		"passed": 0,
+		"failed": 4
+	},
+	"engineSummaries": [
+		{
+			"engine": "gate:rules",
+			"total": 2,
+			"passed": 0,
+			"failed": 2,
+			"speakRecall": {
+				"expected": 2,
+				"spoke": 0
+			},
+			"silencePrecision": {
+				"expected": 2,
+				"stayedSilent": 2
+			},
+			"avgLatencyMs": 0.25,
+			"calibration": {
+				"onCorrect": 0.3,
+				"onIncorrect": 0.3
+			}
+		},
+		{
+			"engine": "gate:local",
+			"total": 2,
+			"passed": 0,
+			"failed": 2,
+			"speakRecall": {
+				"expected": 2,
+				"spoke": 0
+			},
+			"silencePrecision": {
+				"expected": 0,
+				"stayedSilent": 0
+			},
+			"avgLatencyMs": 0,
+			"calibration": {
+				"onCorrect": null,
+				"onIncorrect": null
+			},
+			"unavailable": "no decision model at http://127.0.0.1:11434/v1 (fetch failed)"
+		}
+	],
+	"results": [
+		{
+			"situationId": "first-contact",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 1,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says isNew=false, expected true"
+						}
+					],
+					"verdict": "fail",
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						}
+					],
+					"verdict": "pass",
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:rules"
+		},
+		{
+			"situationId": "second-scene",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says silence, expected useful/critical"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": false,
+							"detail": "gate says isNew=false, expected true"
+						}
+					],
+					"verdict": "fail",
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				},
+				{
+					"pass": 2,
+					"expectation": "silence",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [
+						{
+							"name": "spoken",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence (rules · rules)"
+						},
+						{
+							"name": "relevanceClass",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says silence, expected silence/minor"
+						},
+						{
+							"name": "novelty",
+							"tier": "decision",
+							"passed": true,
+							"detail": "gate says isNew=false, expected false"
+						}
+					],
+					"verdict": "pass",
+					"engine": "gate:rules",
+					"gate": {
+						"shouldSpeak": false,
+						"isNew": false,
+						"relevanceClass": "silence",
+						"category": "change",
+						"confidence": 0.3,
+						"policyReason": "gate says silence"
+					}
+				}
+			],
+			"engine": "gate:rules"
+		},
+		{
+			"situationId": "first-contact",
+			"engine": "gate:local",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [],
+					"verdict": "fail",
+					"error": "engine unavailable: no decision model at http://127.0.0.1:11434/v1 (fetch failed)",
+					"engine": "gate:local"
+				}
+			]
+		},
+		{
+			"situationId": "second-scene",
+			"engine": "gate:local",
+			"passed": false,
+			"humanVerdict": null,
+			"humanNote": "",
+			"passes": [
+				{
+					"pass": 1,
+					"expectation": "speak",
+					"observation": null,
+					"spoken": false,
+					"relevance": 0,
+					"actions": [],
+					"latencyMs": 0,
+					"checks": [],
+					"verdict": "fail",
+					"error": "engine unavailable: no decision model at http://127.0.0.1:11434/v1 (fetch failed)",
+					"engine": "gate:local"
+				}
+			]
+		}
+	]
+}

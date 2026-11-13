@@ -325,6 +325,7 @@ export async function describeVideo(
 	connector?: SkyrimConnector,
 	userQuestion?: string,
 	mediaType: string = "video/webm",
+	gateHint?: string,
 ): Promise<{ response: GeminiResponse; isQuestion: boolean }> {
 	const question = userQuestion?.trim();
 	const isQuestion = !!question;
@@ -361,6 +362,12 @@ export async function describeVideo(
 			role: "system",
 			content:
 				"## MODE QUESTION (STRICT)\nLe joueur vient de poser une question explicite.\nTu DOIS répondre directement.\nDans ce mode, observation ne doit jamais être null.\nSi l'image est ambiguë, dis-le brièvement et demande de rester immobile une seconde.\nUtilise toujours le français.",
+		});
+	}
+	if (gateHint) {
+		system.push({
+			role: "system",
+			content: `## CONSIGNE DU FILTRE (System 1)\nLe filtre de décision a déjà déterminé que le joueur doit entendre quelque chose MAINTENANT.\nFormule l'observation en te basant sur cette intention : « ${gateHint} ».\nReste concis et actionnable (max 2 phrases), en français.`,
 		});
 	}
 

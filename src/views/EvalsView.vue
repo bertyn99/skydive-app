@@ -128,6 +128,10 @@ function matrixCell(situationId: string, engine: MatrixEngineId) {
 		.get(engine)
 		?.find((result) => result.situationId === situationId);
 	if (!entry) return "missing" as const;
+	// The engine never ran (availability probe failed) — not a test failure.
+	if (entry.passes.some((pass) => pass.error?.startsWith("engine unavailable"))) {
+		return "unavailable" as const;
+	}
 	return entry.passed ? ("pass" as const) : ("fail" as const);
 }
 
@@ -312,12 +316,23 @@ function formatDate(timestamp: number): string {
 										class="px-3 py-2"
 									>
 										<span
-											v-if="matrixCell(situation.id, engine) !== 'missing'"
-											:class="matrixCell(situation.id, engine) === 'pass'
-												? 'text-success'
-												: 'text-error'"
+											v-if="matrixCell(situation.id, engine) === 'pass'"
+											class="text-success"
 										>
-											{{ matrixCell(situation.id, engine) === "pass" ? "PASS" : "FAIL" }}
+											PASS
+										</span>
+										<span
+											v-else-if="matrixCell(situation.id, engine) === 'unavailable'"
+											class="text-dimmed"
+											title="Engine unavailable — not run"
+										>
+											n/r
+										</span>
+										<span
+											v-else-if="matrixCell(situation.id, engine) === 'fail'"
+											class="text-error"
+										>
+											FAIL
 										</span>
 										<span v-else class="text-dimmed">n/a</span>
 									</td>

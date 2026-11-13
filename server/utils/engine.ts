@@ -1,5 +1,6 @@
 import type { Peer } from "crossws";
 import {
+	addToHistory,
 	clearHistory,
 	describeVideo,
 	GEMINI_MODEL_ID,
@@ -299,15 +300,35 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 	}
 
 	// Escalation: compose through the cloud composer (Stage 6 swaps in a
-	// local composer when the policy routes there).
+	// local composer when the policy routes there). The gate's summary rides
+	// along as a hint so the composer aligns with the decision it paid for.
 	const composerStart = Date.now();
 	const { response } = await describeVideo(
 		videoBuffer,
 		state.systemPrompt || undefined,
 		state.connector || undefined,
 		undefined,
+		"video/webm",
+		decision.summary || undefined,
 	);
 	const composerMs = Date.now() - composerStart;
+
+	const composed =
+		response.observation !== null &&
+		!isSilent(response.observation) &&
+		response.relevance >= 4;
+	if (!composed && decision.summary) {
+		// Composer vetoed the gate. Nothing entered the real history, so the
+		// next identical clip would re-trigger gate-speak → composer call,
+		// forever. Record the gate's summary as a tombstone so the novelty
+		// filter suppresses the repeat (the scene hasn't changed either).
+		addToHistory(decision.summary, RELEVANCE_VALUE[decision.relevance]);
+		log(
+			"info",
+			"gate",
+			`Composer vetoed the gate — tombstone recorded: "${decision.summary}"`,
+		);
+	}
 
 	await speakToPlayer({
 		text: response.observation,
@@ -319,7 +340,9 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 			tier: "gate",
 			engine: `${state.gateEngine}·${gateProv.modelId}`,
 			latencyMs: gateMs,
-			relevance: RELEVANCE_VALUE[decision.relevance],
+			// Effective outcome (what actually reached the player), not the
+			// gate's intention.
+			relevance: response.relevance,
 			composer: GEMINI_MODEL_ID,
 			composerLatencyMs: composerMs,
 		},
@@ -710,6 +733,10 @@ export function updateGameState(payload: GameStatePayload): boolean {
 		priority: payload.priority,
 		timestamp: payload.timestamp,
 	});
+
+	// The dashboard still mirrors mod context when the engine is stopped, but
+	// a stopped engine must never speak (reflex TTS) or set urgency flags.
+	if (!state.isRunning) return false;
 
 	// Reflex rules (Stage 5): canned 0ms callouts for true emergencies,
 	// bypassing the Gate and the composer entirely. Cooldown per rule.
