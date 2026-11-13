@@ -1,9 +1,19 @@
 import type { Peer } from "crossws";
-import { transcribeAudio } from "./elevenlabs-stt";
-import { clearHistory, describeVideo } from "./gemini";
-import { textToSpeech } from "./mistral-tts";
+import { clearHistory, describeVideo, GEMINI_MODEL_ID } from "./gemini";
+import {
+	isSttEngineId,
+	type SttEngineId,
+	resolveSttEngine,
+	transcribeSpeech,
+} from "./stt";
 import { isSilent } from "./silence";
-import type { GameStateData, GameStatePayload } from "./protocol";
+import {
+	isTtsEngineId,
+	type TtsEngineId,
+	resolveTtsEngine,
+	synthesizeSpeech,
+} from "./tts";
+import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { SkyrimFileConnector } from "./skyrim-file-connector";
 
@@ -11,13 +21,15 @@ interface EngineState {
 	isRunning: boolean;
 	intervalMs: number;
 	systemPrompt: string;
+	ttsEngine: TtsEngineId;
+	sttEngine: SttEngineId;
 	clients: Set<Peer>;
 	abortController: AbortController | null;
 	timer: ReturnType<typeof setInterval> | null;
 	processing: boolean;
 	latestGameState: GameStatePayload | null;
-	lastGeminiCall: number;
-	geminiProcessing: boolean;
+	/** Until this timestamp, high-priority mod context bypasses the ambient cooldown. */
+	urgentUntil: number;
 	pendingQuestion: string | null;
 	latestClipBuffer: Buffer | null;
 	wakeWordPending: boolean;
@@ -30,13 +42,14 @@ const state: EngineState = {
 	isRunning: false,
 	intervalMs: 6000,
 	systemPrompt: "",
+	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, "elevenlabs"),
+	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "elevenlabs"),
 	clients: new Set(),
 	abortController: null,
 	timer: null,
 	processing: false,
 	latestGameState: null,
-	lastGeminiCall: 0,
-	geminiProcessing: false,
+	urgentUntil: 0,
 	pendingQuestion: null,
 	latestClipBuffer: null,
 	wakeWordPending: false,
@@ -109,15 +122,23 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 				const question = state.pendingQuestion;
 				state.pendingQuestion = null;
 
+				// High-priority mod context (critical game events) temporarily
+				// bypasses the ambient cooldown so emergencies get through.
+				const urgent = Date.now() < state.urgentUntil;
+
 				// Skip ambient clips that arrive too soon after an answer
 				// to avoid redundant descriptions
-				if (!question && Date.now() - state.lastAnswerTime < state.intervalMs) {
+				if (
+					!question &&
+					!urgent &&
+					Date.now() - state.lastAnswerTime < state.intervalMs
+				) {
 					log("info", "engine", "Skipping ambient clip — answer cooldown active");
 				} else {
 					log(
 						"info",
 						"engine",
-						`Processing clip (${(current.videoBuffer.length / 1024).toFixed(0)}KB, ${current.durationMs}ms)${question ? ` [question: ${question}]` : ""}`,
+						`Processing clip (${(current.videoBuffer.length / 1024).toFixed(0)}KB, ${current.durationMs}ms)${question ? ` [question: ${question}]` : ""}${urgent ? " [urgent]" : ""}`,
 					);
 
 					const startGemini = Date.now();
@@ -145,6 +166,8 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 
 					const isRelevant = isQuestion || relevance >= 4;
 
+					// Provenance chip (Stage 4): which gate decided, how fast,
+					// and how relevant it judged the moment.
 					broadcast({
 						type: "description",
 						text: finalObservation,
@@ -152,6 +175,12 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 						actions,
 						latency: geminiMs,
 						silent: !isRelevant,
+						provenance: {
+							tier: "gate",
+							engine: GEMINI_MODEL_ID,
+							latencyMs: geminiMs,
+							relevance,
+						},
 					});
 
 					// Broadcast actions for future use
@@ -170,16 +199,44 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 					} else if (isSilent(finalObservation)) {
 						log("info", "engine", "Silent — skipping TTS");
 					} else {
-						const ttsBuffer = await textToSpeech(finalObservation, "elevenlabs");
-						if (isQuestion) {
-							state.lastAnswerTime = Date.now();
+						const tts = await synthesizeSpeech(finalObservation, state.ttsEngine);
+						if (!tts) {
+							log(
+								"error",
+								"tts",
+								`All TTS engines failed — skipping audio for: ${finalObservation.slice(0, 60)}`,
+							);
+						} else {
+							if (isQuestion) {
+								state.lastAnswerTime = Date.now();
+							}
+							if (tts.provenance.fallbackFrom) {
+								log(
+									"warn",
+									"tts",
+									`Engine ${tts.provenance.fallbackFrom} failed — fallback to ${tts.provenance.engine}`,
+								);
+							}
+							log(
+								"info",
+								"tts",
+								`${tts.provenance.engine} (${tts.provenance.latencyMs}ms${tts.provenance.cached ? ", cached" : ""})`,
+							);
+							broadcast({
+								type: "audio",
+								buffer: tts.audio,
+								mimeType: tts.mimeType,
+								priority: isQuestion ? "answer" : "ambient",
+								text: finalObservation,
+								provenance: {
+									tier: "tts",
+									engine: tts.provenance.engine,
+									latencyMs: tts.provenance.latencyMs,
+									cached: tts.provenance.cached,
+									fallbackFrom: tts.provenance.fallbackFrom,
+								},
+							});
 						}
-						broadcast({
-							type: "audio",
-							buffer: ttsBuffer.toString(),
-							priority: isQuestion ? "answer" : "ambient",
-							text: finalObservation,
-						});
 					}
 				}
 			} catch (err: unknown) {
@@ -206,37 +263,13 @@ export function processClip(videoBuffer: Buffer, durationMs: number) {
 	})();
 }
 
-async function triggerGeminiWithGameState(gameState: GameStateData) {
-	try {
-		const frame = await captureScreen();
-		broadcast({
-			type: "frame",
-			base64: frame.base64,
-			timestamp: frame.timestamp,
-		});
-
-		const startGemini = Date.now();
-		const description = await describeFrame(
-			frame.base64,
-			state.systemPrompt || undefined,
-			gameState,
-		);
-		const geminiMs = Date.now() - startGemini;
-		log(
-			"info",
-			"gemini",
-			`Description (game-state triggered, ${geminiMs}ms): ${description}`,
-		);
-		broadcast({ type: "description", text: description, latency: geminiMs });
-
-		const audioBase64 = await textToSpeech(description, "elevenlabs");
-		broadcast({ type: "audio", data: audioBase64, description, latency: 0 });
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		log("error", "engine", `Game-state Gemini error: ${msg}`);
-	} finally {
-		state.geminiProcessing = false;
-	}
+function statusPayload() {
+	return {
+		isRunning: state.isRunning,
+		intervalMs: state.intervalMs,
+		ttsEngine: state.ttsEngine,
+		sttEngine: state.sttEngine,
+	};
 }
 
 export function start() {
@@ -245,9 +278,9 @@ export function start() {
 	log(
 		"info",
 		"engine",
-		`Engine started (expecting ${state.intervalMs}ms clips)`,
+		`Engine started (expecting ${state.intervalMs}ms clips, tts=${state.ttsEngine}, stt=${state.sttEngine})`,
 	);
-	broadcast({ type: "status", isRunning: true, intervalMs: state.intervalMs });
+	broadcast({ type: "status", ...statusPayload() });
 }
 
 export function stop() {
@@ -256,12 +289,14 @@ export function stop() {
 
 	clearHistory();
 	log("info", "engine", "Engine stopped");
-	broadcast({ type: "status", isRunning: false, intervalMs: state.intervalMs });
+	broadcast({ type: "status", ...statusPayload() });
 }
 
 export function updateConfig(config: {
 	intervalMs?: number;
 	systemPrompt?: string;
+	ttsEngine?: unknown;
+	sttEngine?: unknown;
 }) {
 	if (
 		config.intervalMs !== undefined &&
@@ -276,24 +311,34 @@ export function updateConfig(config: {
 		log("info", "engine", "System prompt updated");
 	}
 
-	broadcast({
-		type: "status",
-		isRunning: state.isRunning,
-		intervalMs: state.intervalMs,
-	});
+	if (config.ttsEngine !== undefined) {
+		const next = resolveTtsEngine(config.ttsEngine, state.ttsEngine);
+		if (next !== state.ttsEngine) {
+			state.ttsEngine = next;
+			log("info", "engine", `TTS engine set to ${next}`);
+		} else if (!isTtsEngineId(config.ttsEngine)) {
+			log("warn", "engine", `Unknown TTS engine "${String(config.ttsEngine)}" — kept ${state.ttsEngine}`);
+		}
+	}
+
+	if (config.sttEngine !== undefined) {
+		const next = resolveSttEngine(config.sttEngine, state.sttEngine);
+		if (next !== state.sttEngine) {
+			state.sttEngine = next;
+			log("info", "engine", `STT engine set to ${next}`);
+		} else if (!isSttEngineId(config.sttEngine)) {
+			log("warn", "engine", `Unknown STT engine "${String(config.sttEngine)}" — kept ${state.sttEngine}`);
+		}
+	}
+
+	broadcast({ type: "status", ...statusPayload() });
 }
 
 export function registerClient(peer: Peer) {
 	state.clients.add(peer);
 	log("info", "engine", `Client connected (${state.clients.size} total)`);
 
-	peer.send(
-		JSON.stringify({
-			type: "status",
-			isRunning: state.isRunning,
-			intervalMs: state.intervalMs,
-		}),
-	);
+	peer.send(JSON.stringify({ type: "status", ...statusPayload() }));
 
 	if (state.latestGameState) {
 		peer.send(
@@ -324,6 +369,8 @@ export function getConfig() {
 	return {
 		intervalMs: state.intervalMs,
 		systemPrompt: state.systemPrompt,
+		ttsEngine: state.ttsEngine,
+		sttEngine: state.sttEngine,
 	};
 }
 
@@ -431,18 +478,32 @@ export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 	state.sttProcessing = true;
 
 	try {
-		const transcript = await transcribeAudio(audioBuffer, mimeType);
-		const trimmed = transcript.trim();
+		const { text, provenance } = await transcribeSpeech(
+			audioBuffer,
+			mimeType,
+			state.sttEngine,
+		);
+		const trimmed = text.trim();
 		if (!trimmed || trimmed.length < 3) {
 			return;
 		}
+
+		log(
+			"info",
+			"stt",
+			`${provenance.engine} (${provenance.latencyMs}ms${provenance.fallbackFrom ? `, fallback from ${provenance.fallbackFrom}` : ""}): "${trimmed.slice(0, 80)}"`,
+		);
 
 		if (state.wakeWordPending) {
 			// Previous chunk had just "Guide" — this chunk is the question
 			state.wakeWordPending = false;
 			broadcast({ type: "voice_status", status: "listening" });
 			log("info", "voice", `Question (after wake): ${trimmed}`);
-			broadcast({ type: "voice_question", text: trimmed });
+			broadcast({
+				type: "voice_question",
+				text: trimmed,
+				stt: provenance,
+			});
 			processQuestion(trimmed);
 			return;
 		}
@@ -466,7 +527,11 @@ export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 		const voiceSourceLabel =
 			extracted.reason === "freeform" ? "Question (freeform):" : "Question:";
 		log("info", "voice", `${voiceSourceLabel} ${extracted.question}`);
-		broadcast({ type: "voice_question", text: extracted.question });
+		broadcast({
+			type: "voice_question",
+			text: extracted.question,
+			stt: provenance,
+		});
 		processQuestion(extracted.question);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -486,23 +551,17 @@ export function updateGameState(payload: GameStatePayload): boolean {
 		timestamp: payload.timestamp,
 	});
 
-	const now = Date.now();
-	const timeSinceLastCall = now - state.lastGeminiCall;
-	const MIN_CALL_INTERVAL = 5000;
-
-	if (timeSinceLastCall < MIN_CALL_INTERVAL) return false;
-
-	const shouldTrigger =
-		payload.priority === "critical" ||
-		payload.priority === "high" ||
-		timeSinceLastCall > 30000;
-
-	if (shouldTrigger && !state.geminiProcessing && !state.processing) {
-		state.lastGeminiCall = now;
-		state.geminiProcessing = true;
-		triggerGeminiWithGameState(payload.data).catch(() => {
-			state.geminiProcessing = false;
-		});
+	// High/critical game events temporarily bypass the ambient clip cooldown:
+	// the next clip that arrives gets processed immediately instead of being
+	// dropped (screenshots are browser-side now, so the server cannot trigger
+	// a description on its own — see ADR-0002 lift notes).
+	if (payload.priority === "critical" || payload.priority === "high") {
+		state.urgentUntil = Date.now() + state.intervalMs + 2000;
+		log(
+			"info",
+			"engine",
+			`Urgent game state (${payload.priority}) — cooldown bypassed for the next clip`,
+		);
 		return true;
 	}
 

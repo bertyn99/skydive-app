@@ -19,11 +19,11 @@ export default defineEventHandler(async (event) => {
 		});
 	}
 
-	const geminiTriggered = updateGameState(body);
+	const urgent = updateGameState(body);
 
 	const response: GameStateResponse = {
 		status: "ok",
-		geminiTriggered,
+		urgent,
 		serverTimestamp: Date.now(),
 	};
 

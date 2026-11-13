@@ -19,10 +19,39 @@ export interface LogEntry {
 
 export type SourceKind = "screen" | "video-file";
 
+/** Provenance chip (Stage 4): which engine produced an output, how fast. */
+export interface ProvenanceChip {
+	tier: "gate" | "tts" | "stt";
+	engine: string;
+	latencyMs: number;
+	relevance?: number;
+	cached?: boolean;
+	fallbackFrom?: string | null;
+}
+
+export interface TtsProvenance {
+	engine: string;
+	latencyMs: number;
+	cached?: boolean;
+	fallbackFrom?: string | null;
+}
+
+export const TTS_ENGINE_OPTIONS = [
+	{ label: "ElevenLabs (cloud)", value: "elevenlabs" },
+	{ label: "Mistral Voxtral (cloud)", value: "mistral" },
+	{ label: "Piper (local, fr_FR)", value: "piper-local" },
+] as const;
+
+export const STT_ENGINE_OPTIONS = [
+	{ label: "ElevenLabs Scribe (cloud)", value: "elevenlabs" },
+	{ label: "Whisper (local server)", value: "whisper-local" },
+] as const;
+
 interface AudioQueueItem {
 	buffer: string;
 	priority: "answer" | "ambient";
 	text: string;
+	tts: TtsProvenance | null;
 }
 
 // Persistent AudioContext, unlocked once on user gesture
@@ -61,12 +90,17 @@ export const useSessionStore = defineStore("session", () => {
 
 	// AI
 	const lastDescription = shallowRef<string | null>(null);
+	const lastProvenance = shallowRef<ProvenanceChip | null>(null);
+
+	// Engine seams (Stage 4) — mirrored from the server's status broadcasts
+	const ttsEngine = shallowRef<string>("elevenlabs");
+	const sttEngine = shallowRef<string>("elevenlabs");
 
 	// Audio
 	const isPlaying = shallowRef(false);
 	const audioQueue = shallowRef<AudioQueueItem[]>([]);
 	const nowPlayingText = shallowRef<string | null>(null);
-
+	const nowPlayingTts = shallowRef<AudioQueueItem["tts"]>(null);
 	// Voice
 	const voiceStatus = shallowRef<VoiceStatus>("off");
 	const lastQuestion = shallowRef<string | null>(null);
@@ -117,6 +151,7 @@ export const useSessionStore = defineStore("session", () => {
 		isPlaying.value = false;
 		audioQueue.value = [];
 		nowPlayingText.value = null;
+		nowPlayingTts.value = null;
 	}
 
 	function playNextAudio(): void {
@@ -126,6 +161,7 @@ export const useSessionStore = defineStore("session", () => {
 		audioQueue.value = rest;
 		isPlaying.value = true;
 		nowPlayingText.value = `[${next.priority}] ${next.text}`;
+		nowPlayingTts.value = next.tts;
 
 		const ctx = getAudioContext();
 		const raw = atob(next.buffer);
@@ -144,6 +180,7 @@ export const useSessionStore = defineStore("session", () => {
 					currentAudioSource = null;
 					isPlaying.value = false;
 					nowPlayingText.value = null;
+					nowPlayingTts.value = null;
 					playNextAudio();
 				};
 				currentAudioSource = source;
@@ -151,6 +188,7 @@ export const useSessionStore = defineStore("session", () => {
 			})
 			.catch(() => {
 				isPlaying.value = false;
+				nowPlayingTts.value = null;
 				addLog("error", "audio", "Failed to decode audio clip");
 				playNextAudio();
 			});
@@ -419,6 +457,7 @@ export const useSessionStore = defineStore("session", () => {
 		switch (data.type) {
 			case "description":
 				lastDescription.value = data.text as string;
+				lastProvenance.value = (data.provenance as ProvenanceChip | undefined) ?? null;
 				break;
 
 			case "audio": {
@@ -426,6 +465,7 @@ export const useSessionStore = defineStore("session", () => {
 					buffer: data.buffer as string,
 					priority: (data.priority as "answer" | "ambient") ?? "ambient",
 					text: (data.text as string) ?? "",
+					tts: (data.provenance as TtsProvenance | undefined) ?? null,
 				};
 				const queued = audioQueue.value[0];
 				if (
@@ -443,6 +483,12 @@ export const useSessionStore = defineStore("session", () => {
 
 			case "status":
 				captureInterval.value = data.intervalMs as number;
+				if (typeof data.ttsEngine === "string") {
+					ttsEngine.value = data.ttsEngine;
+				}
+				if (typeof data.sttEngine === "string") {
+					sttEngine.value = data.sttEngine;
+				}
 				break;
 
 			case "log":
@@ -471,6 +517,17 @@ export const useSessionStore = defineStore("session", () => {
 		}
 	}
 
+	function setEngines(kind: "tts" | "stt", engine: string): void {
+		if (kind === "tts") {
+			ttsEngine.value = engine;
+			sendCommand("setTtsEngine", engine);
+		} else {
+			sttEngine.value = engine;
+			sendCommand("setSttEngine", engine);
+		}
+		addLog("info", "engine", `${kind.toUpperCase()} engine set to ${engine}`);
+	}
+
 	return {
 		// State
 		ws,
@@ -482,9 +539,13 @@ export const useSessionStore = defineStore("session", () => {
 		isCapturing,
 		captureInterval,
 		lastDescription,
+		lastProvenance,
+		ttsEngine,
+		sttEngine,
 		isPlaying,
 		audioQueue,
 		nowPlayingText,
+		nowPlayingTts,
 		voiceStatus,
 		lastQuestion,
 		logs,
@@ -499,6 +560,7 @@ export const useSessionStore = defineStore("session", () => {
 		stopCapture,
 		setSource,
 		setVideoFileStream,
+		setEngines,
 		startVoice,
 		stopVoice,
 		stopCurrentAudio,

@@ -38,6 +38,15 @@ _Avoid_: test case, scenario, fixture alone
 
 **Eval run**:
 Executing a set of Situations through the real pipeline and scoring the results (deterministic checks + human verdict) to detect regressions across prompt or model changes.
+_Avoid_: test suite run, CI
+
+**Seam**:
+The engine dispatch layer for voice I/O: TTS (`elevenlabs | mistral | piper-local`) and STT (`elevenlabs | whisper-local`). Callers ask for an engine by id; the seam dispatches, measures latency, and falls back through the remaining engines on failure. Configured per engine kind from the dashboard or `TTS_ENGINE`/`STT_ENGINE` env.
+_Avoid_: provider switch, backend, adapter (unqualified)
+
+**Provenance**:
+The chip attached to every pipeline output naming what produced it: `GATE · model · latency · relevance` for observations, `TTS · engine · latency` for audio (plus `cached` / `↯ fallback-from`). Always names the engine that actually produced the output, not the one that was asked.
+_Avoid_: metadata, telemetry fields (telemetry is reserved for mod context)
 _Avoid_: benchmark, CI test
 
 **Reflex**:

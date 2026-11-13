@@ -3,7 +3,11 @@ import { computed, shallowRef, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { storeToRefs } from "pinia";
 import { useToast } from "@nuxt/ui/composables";
-import { useSessionStore } from "../stores/session";
+import {
+	STT_ENGINE_OPTIONS,
+	TTS_ENGINE_OPTIONS,
+	useSessionStore,
+} from "../stores/session";
 
 interface EngineConfig {
 	intervalMs: number;
@@ -11,7 +15,7 @@ interface EngineConfig {
 }
 
 const session = useSessionStore();
-const { isCapturing, captureInterval, serverConnected, source } =
+const { isCapturing, captureInterval, serverConnected, source, ttsEngine, sttEngine } =
 	storeToRefs(session);
 const queryClient = useQueryClient();
 const toast = useToast();
@@ -139,6 +143,40 @@ function save() {
 					@update:model-value="handleIntervalChange"
 				/>
 			</UFormField>
+
+			<div class="flex flex-col gap-3.5">
+				<UFormField
+					label="TTS engine"
+					class="flex flex-col gap-2"
+					:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+				>
+					<USelect
+						:model-value="ttsEngine"
+						:items="[...TTS_ENGINE_OPTIONS]"
+						:disabled="!serverConnected"
+						size="sm"
+						class="font-mono text-xs"
+						aria-label="Text-to-speech engine"
+						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('tts', v) }"
+					/>
+				</UFormField>
+
+				<UFormField
+					label="STT engine"
+					class="flex flex-col gap-2"
+					:ui="{ label: 'font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed' }"
+				>
+					<USelect
+						:model-value="sttEngine"
+						:items="[...STT_ENGINE_OPTIONS]"
+						:disabled="!serverConnected"
+						size="sm"
+						class="font-mono text-xs"
+						aria-label="Speech-to-text engine"
+						@update:model-value="(v: unknown) => { if (typeof v === 'string') session.setEngines('stt', v) }"
+					/>
+				</UFormField>
+			</div>
 
 			<UFormField
 				label="System prompt override"

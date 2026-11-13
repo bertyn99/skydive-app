@@ -5,7 +5,7 @@ import { storeToRefs } from "pinia";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
-const { logs, lastDescription, isPlaying, nowPlayingText, audioQueue } =
+const { logs, lastDescription, lastProvenance, isPlaying, nowPlayingText, nowPlayingTts, audioQueue } =
 	storeToRefs(session);
 
 const logStream = useTemplateRef<HTMLElement>("logStream");
@@ -42,12 +42,33 @@ watch(
 			/>
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col gap-3.5 p-4">
-			<p
+			<div
 				v-if="lastDescription"
-				class="rounded-r-md border-l-2 border-primary bg-primary/10 px-3.5 py-2.5 text-[15px] leading-relaxed text-highlighted"
+				class="rounded-r-md border-l-2 border-primary bg-primary/10 px-3.5 py-2.5"
 			>
-				{{ lastDescription }}
-			</p>
+				<p class="text-[15px] leading-relaxed text-highlighted">
+					{{ lastDescription }}
+				</p>
+				<!-- Provenance chip: GATE · engine · latency · relevance (Stage 4) -->
+				<p
+					v-if="lastProvenance"
+					class="mt-1.5 flex flex-wrap items-center gap-x-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-dimmed"
+				>
+					<span class="text-primary opacity-85">{{ lastProvenance.tier }}</span>
+					<span aria-hidden="true">·</span>
+					<span>{{ lastProvenance.engine }}</span>
+					<span aria-hidden="true">·</span>
+					<span class="tabular-nums">{{ lastProvenance.latencyMs }}ms</span>
+					<template v-if="lastProvenance.relevance !== undefined">
+						<span aria-hidden="true">·</span>
+						<span class="tabular-nums">rel {{ lastProvenance.relevance }}/10</span>
+					</template>
+					<template v-if="lastProvenance.fallbackFrom">
+						<span aria-hidden="true">·</span>
+						<span class="text-warning">↯ {{ lastProvenance.fallbackFrom }}</span>
+					</template>
+				</p>
+			</div>
 			<p
 				v-else
 				class="rounded-r-md border-l-2 border-default px-3.5 py-2.5 font-mono text-[11px] uppercase tracking-[0.1em] text-dimmed"
@@ -56,10 +77,29 @@ watch(
 			</p>
 
 			<div class="flex flex-col gap-1 font-mono text-[11.5px] leading-relaxed">
-				<span v-if="isPlaying && nowPlayingText" class="text-primary">
-					<span class="mr-1 text-[9.5px] uppercase tracking-[0.12em] text-dimmed">now</span>
-					{{ nowPlayingText }}
-				</span>
+				<template v-if="isPlaying && nowPlayingText">
+					<span class="text-primary">
+						<span class="mr-1 text-[9.5px] uppercase tracking-[0.12em] text-dimmed">now</span>
+						{{ nowPlayingText }}
+					</span>
+					<!-- TTS provenance chip: ENGINE · latency · cached -->
+					<span
+						v-if="nowPlayingTts"
+						class="ml-8 flex flex-wrap items-center gap-x-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-dimmed"
+					>
+						<span>tts</span>
+						<span aria-hidden="true">·</span>
+						<span>{{ nowPlayingTts.engine }}</span>
+						<span aria-hidden="true">·</span>
+						<span class="tabular-nums">{{ nowPlayingTts.latencyMs }}ms</span>
+						<span v-if="nowPlayingTts.cached" aria-hidden="true">·</span>
+						<span v-if="nowPlayingTts.cached" class="text-success/80">cached</span>
+						<template v-if="nowPlayingTts.fallbackFrom">
+							<span aria-hidden="true">·</span>
+							<span class="text-warning">↯ {{ nowPlayingTts.fallbackFrom }}</span>
+						</template>
+					</span>
+				</template>
 				<span v-else class="text-dimmed">
 					<span class="mr-1 text-[9.5px] uppercase tracking-[0.12em] text-dimmed">now</span>
 					nothing playing

@@ -78,6 +78,16 @@ export default defineWebSocketHandler({
 						updateConfig({ systemPrompt: data.value });
 					}
 					break;
+				case "setTtsEngine":
+					if (typeof data.value === "string") {
+						updateConfig({ ttsEngine: data.value });
+					}
+					break;
+				case "setSttEngine":
+					if (typeof data.value === "string") {
+						updateConfig({ sttEngine: data.value });
+					}
+					break;
 				case "question":
 					if (typeof data.text === "string" && data.text.trim()) {
 						processQuestion(data.text.trim());

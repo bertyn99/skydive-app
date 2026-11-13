@@ -1,4 +1,6 @@
-const VOICE_ID = "4p5WXd3ZuWR9pPtRQuxC";
+// Voice must be a premade voice on the free plan — library voices are
+// rejected with 402 payment_required (discovered by the TTS seam, Stage 4).
+const VOICE_ID = process.env.ELEVENLABS_TTS_VOICE_ID ?? "4p5WXd3ZuWR9pPtRQuxC";
 const TTS_MODEL_ID = process.env.ELEVENLABS_TTS_MODEL_ID ?? "eleven_flash_v2_5";
 const TTS_LANGUAGE_CODE = process.env.ELEVENLABS_TTS_LANGUAGE_CODE ?? "fr";
 const TTS_OUTPUT_FORMAT = process.env.ELEVENLABS_TTS_OUTPUT_FORMAT ?? "mp3_44100_64";
@@ -16,7 +18,7 @@ type CacheEntry = {
 };
 
 const ttsCache = new Map<string, CacheEntry>();
-const inFlightByText = new Map<string, Promise<string>>();
+const inFlightByText = new Map<string, Promise<ElevenLabsTtsResult>>();
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -62,19 +64,33 @@ function setCachedAudio(cacheKey: string, audioBase64: string): void {
 	});
 }
 
-export async function textToSpeechElevenLabs(text: string): Promise<string> {
+export interface ElevenLabsTtsResult {
+	/** Base64-encoded MP3 audio. */
+	audio: string;
+	/** Whether this came from the in-memory dedup cache (latency ≈ 0ms). */
+	cached: boolean;
+}
+
+/**
+ * Synthesize speech with ElevenLabs. Throws on missing key, HTTP error,
+ * timeout or malformed response — the TTS seam (server/utils/tts.ts)
+ * handles the fallback chain and provenance.
+ */
+export async function textToSpeechElevenLabs(
+	text: string,
+): Promise<ElevenLabsTtsResult> {
 	const apiKey = process.env.ELEVENLABS_API_KEY;
 	if (!apiKey) {
 		throw new Error("ELEVENLABS_API_KEY not set");
 	}
 
 	const normalizedText = text.trim();
-	if (!normalizedText) return "";
+	if (!normalizedText) return { audio: "", cached: false };
 
 	const cacheKey = getCacheKey(normalizedText);
 	const cachedAudio = getCachedAudio(cacheKey);
 	if (cachedAudio) {
-		return cachedAudio;
+		return { audio: cachedAudio, cached: true };
 	}
 
 	const inFlight = inFlightByText.get(cacheKey);
@@ -133,7 +149,7 @@ export async function textToSpeechElevenLabs(text: string): Promise<string> {
 						`[elevenlabs-tts] ${Math.round(arrayBuffer.byteLength / 1024)}KB in ${latencyMs}ms`,
 					);
 				}
-				return base64;
+				return { audio: base64, cached: false };
 			} catch (err) {
 				lastError = err instanceof Error ? err : new Error(String(err));
 				if (attempt < TTS_MAX_RETRIES && isRetriableError(err)) {

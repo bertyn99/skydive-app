@@ -45,7 +45,8 @@ export interface GameStatePayload {
 
 export interface GameStateResponse {
   status: "ok" | "error";
-  geminiTriggered?: boolean;
+  /** True when the payload raised the engine's urgency flag (cooldown bypass). */
+  urgent?: boolean;
   error?: string;
   serverTimestamp: number;
 }

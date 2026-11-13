@@ -42,11 +42,27 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
 - [x] Silence discipline fixture type: `repeat: { expectation }` — same clip fed twice,
       history retained, expect SILENCE on the second pass (verified live).
 
-## Stage 4 — Engine seams + provenance
+## Stage 4 — Engine seams + provenance — ✅ shipped
 
-- [ ] TTS engine seam: elevenlabs | mistral | piper (local, fr_FR, ~100ms).
-- [ ] STT engine seam: elevenlabs | whisper-local (faster-whisper/whisper.cpp server, fr).
-- [ ] Provenance chips on every observation in telemetry (`GATE · clef-flash · 45ms · 0.92`).
+- [x] TTS engine seam (`server/utils/tts.ts`): elevenlabs | mistral | piper-local
+      (spawn, fr_FR voice via `PIPER_VOICE`, WAV out). Fallback chain across all
+      engines with provenance naming the engine that actually produced audio
+      (`fallbackFrom` when the requested one failed). Verified live: mock piper
+      54ms; forced failures cascade correctly (piper→elevenlabs→mistral).
+- [x] STT engine seam (`server/utils/stt.ts`): elevenlabs | whisper-local
+      (whisper.cpp `/inference` client, `WHISPER_STT_URL`, fr). Verified live:
+      mock whisper 28ms; unreachable server falls back to elevenlabs.
+- [x] Provenance chips: `GATE · model · latency · rel` on every description
+      broadcast, `TTS · engine · latency · cached` on audio, `stt` provenance on
+      voice questions — rendered in the telemetry panel; engine pickers (TTS/STT)
+      in the session panel, synced over status broadcasts.
+- [x] Fixes: removed the dead game-state Gemini path (called non-existent
+      `describeFrame`/`captureScreen` since the browser took over capture —
+      would have crashed on the first critical mod event); high/critical game
+      state now sets an urgency flag that bypasses the ambient clip cooldown.
+      ElevenLabs voice is env-overridable (`ELEVENLABS_TTS_VOICE_ID`) — current
+      key gets 402 on all TTS (free plan), Mistral key is invalid (401): both
+      cloud voice engines are down, previously silent, now loud in provenance.
 
 ## Stage 5 — Decision-model Gate (System 1)
 
