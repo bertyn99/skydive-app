@@ -83,7 +83,7 @@ const {
 			title: "Prompt saved",
 			description:
 				saved.trim() === ""
-					? "System prompt override cleared — the default prompt is active."
+					? "System prompt override cleared. The default prompt is active."
 					: "System prompt override updated.",
 			color: "success",
 		});

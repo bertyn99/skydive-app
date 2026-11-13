@@ -73,7 +73,7 @@ watch(
 				v-else
 				class="rounded-r-md border-l-2 border-default px-3.5 py-2.5 font-mono text-[11px] uppercase tracking-[0.1em] text-dimmed"
 			>
-				No observation yet — silence is the default
+				No observation yet. Silence is the default
 			</p>
 
 			<div class="flex flex-col gap-1 font-mono text-[11.5px] leading-relaxed">

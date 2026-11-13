@@ -64,6 +64,18 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
       key gets 402 on all TTS (free plan), Mistral key is invalid (401): both
       cloud voice engines are down, previously silent, now loud in provenance.
 
+## Post-Stage 4 — Dashboard IA (multi-page + responsive)
+
+- [x] Console split into routed pages behind a dashboard shell (`UDashboardGroup`
+      + collapsible `UDashboardSidebar`): `/` Session (stage, telemetry, controls,
+      mod context — fixed 2-column instrument grid on lg+, single-column scroll
+      below) and `/evals` Evals (full-width page: fixture cards grid, run results
+      in 2 columns, drift table). WebSocket session lives in the shell, so the
+      link and in-flight eval runs survive navigation.
+- [x] Fixes the overlap at ~1240px where the evals panel bled behind the stage
+      (single-page grid had a fixed row map for 5 panels); each page now owns
+      its own overflow, so panels cannot overlap at any width.
+
 ## Stage 5 — Decision-model Gate (System 1)
 
 - [ ] Gate module: `experimental_decide()` per clip — shouldSpeak (boolean), isNew (boolean),

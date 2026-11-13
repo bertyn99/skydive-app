@@ -66,7 +66,7 @@ function clamp(value: number): number {
 			<p class="text-[12.5px] text-dimmed">
 				{{ incomplete
 					? "Incomplete game data received"
-					: "Waiting for the SKSE plugin — no mod context in a sim session" }}
+					: "Waiting for the SKSE plugin. No mod context in a sim session" }}
 			</p>
 		</div>
 		<div v-else-if="gameState.player" class="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-4">

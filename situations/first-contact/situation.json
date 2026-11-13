@@ -1,6 +1,6 @@
 {
 	"id": "first-contact",
-	"description": "First view of a new scene from a lets-play (10s clip). The assistant has no observation history, so the initialization mode allows one short spoken observation. Feeding the same clip again must produce SILENCE — the novelty filter (glossary) has nothing new to add.",
+	"description": "First view of a new scene from a lets-play (10s clip). The assistant has no observation history, so the initialization mode allows one short spoken observation. Feeding the same clip again must produce SILENCE, the novelty filter (glossary) has nothing new to add.",
 	"clip": "clip.mp4",
 	"modContext": null,
 	"expectation": "speak",

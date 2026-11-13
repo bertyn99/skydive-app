@@ -120,7 +120,7 @@ const audioLabel = computed(() =>
 							v-if="lastQuestion && voiceStatus !== 'off'"
 							:title="lastQuestion"
 						>
-							— “{{ lastQuestion.length > 30 ? `${lastQuestion.slice(0, 30)}…` : lastQuestion }}”
+							“{{ lastQuestion.length > 30 ? `${lastQuestion.slice(0, 30)}…` : lastQuestion }}”
 						</span>
 					</span>
 				</span>

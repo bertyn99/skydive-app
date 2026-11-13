@@ -12,7 +12,6 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     ConfigPanel: typeof import('./src/components/ConfigPanel.vue')['default']
-    EvalsPanel: typeof import('./src/components/EvalsPanel.vue')['default']
     GameStatePanel: typeof import('./src/components/GameStatePanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
@@ -26,11 +25,15 @@ declare module 'vue' {
     UDashboardGroup: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardGroup.vue')['default']
     UDashboardNavbar: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardNavbar.vue')['default']
     UDashboardPanel: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardPanel.vue')['default']
+    UDashboardSidebar: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardSidebar.vue')['default']
+    UDashboardSidebarCollapse: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardSidebarCollapse.vue')['default']
     UDashboardToolbar: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/DashboardToolbar.vue')['default']
     UEmpty: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Empty.vue')['default']
     UFieldGroup: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FieldGroup.vue')['default']
     UFileUpload: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FileUpload.vue')['default']
     UFormField: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/FormField.vue')['default']
+    UIcon: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/vue/components/Icon.vue')['default']
+    UNavigationMenu: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/NavigationMenu.vue')['default']
     USelect: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Select.vue')['default']
     USeparator: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Separator.vue')['default']
     USlider: typeof import('./node_modules/.pnpm/@nuxt+ui@4.12.0_57fc862eaf4c952d2e9ac1e9da1370d3/node_modules/@nuxt/ui/dist/runtime/components/Slider.vue')['default']
