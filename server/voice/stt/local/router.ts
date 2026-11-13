@@ -31,7 +31,9 @@ export async function activeLocalRunner(): Promise<{
 	modelId: string;
 } | null> {
 	const parakeet = await bestInstalledModel("parakeet");
-	if (parakeet) return { runner: "parakeet-cli", modelId: parakeet.spec.id };
+	if (parakeet && (await probeParakeetBinary()).available) {
+		return { runner: "parakeet-cli", modelId: parakeet.spec.id };
+	}
 	const whisper = await bestInstalledModel("whisper");
 	if (whisper) return { runner: "whisper-server", modelId: whisper.spec.id };
 	return null;
@@ -81,10 +83,6 @@ async function transcribeWithParakeet(
 	mimeType: string,
 	model: { spec: WhisperModelSpec },
 ): Promise<string> {
-	const binary = await probeParakeetBinary();
-	if (!binary.available) {
-		throw new Error(binary.setupHint ?? "parakeet-cli not found");
-	}
 	const text = await transcribeParakeetLocal(audioBuffer, mimeType);
 	console.log(`[stt] parakeet runner: ${model.spec.id}`);
 	return text;
@@ -113,8 +111,11 @@ export async function transcribeWhisperLocal(
 ): Promise<string> {
 	if (audioBuffer.length === 0) return "";
 
+	// Parakeet first (Hex's default class for en/es/fr) — but only when its
+	// CLI binary exists; otherwise fall through to the whisper sidecar, which
+	// may be fully ready (installed model + built binary).
 	const parakeet = await bestInstalledModel("parakeet");
-	if (parakeet) {
+	if (parakeet && (await probeParakeetBinary()).available) {
 		return transcribeWithParakeet(audioBuffer, mimeType, parakeet);
 	}
 
