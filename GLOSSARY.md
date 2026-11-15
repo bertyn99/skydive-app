@@ -61,7 +61,7 @@ An Eval run that scores the same Situations across several engines (fused baseli
 _Avoid_: A/B test, comparison run
 
 **Composer** (System 2):
-The layer that turns a Gate decision into the spoken sentence. Engines: `gemini-cloud` (compose-only call) and `local` (self-hosted vision model behind an OpenAI-compatible endpoint). It never re-decides whether to speak; if it cannot see the clip it says so honestly (SILENCE + tombstone). Lives in `server/composer/`, architected like the voice module.
+The layer that turns a Gate decision into the spoken sentence. Engines: `gemini-cloud` (compose-only call) and `local` (self-hosted vision model behind an OpenAI-compatible endpoint). It never re-decides whether to speak; if it cannot see the clip it says so honestly (SILENCE + tombstone). Lives in `server/packages/composer/`, architected like the voice module (`server/packages/voice/`).
 _Avoid_: generator, writer, narrator
 
 **Offline profile**:

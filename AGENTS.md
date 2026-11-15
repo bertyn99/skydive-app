@@ -31,10 +31,19 @@ pnpm preview          # Preview production build locally
 
 ### Testing
 
-No test framework is currently configured. When adding tests:
-- Prefer Vitest for unit tests
-- Run single test: `pnpm vitest run path/to/test.test.ts`
-- Run with coverage: `pnpm vitest run --coverage`
+Vitest is configured with [nitro-test-utils](https://github.com/johannschopplich/nitro-test-utils) (`pnpm test`, `pnpm test:watch`):
+
+- `vitest.config.ts` — uses nitro-test-utils' `defineConfig` with `global: true`: one Nitro app
+  (dev mode) is built before the first test file and reused by every suite via `$serverFetch`.
+  `include` is scoped to `test/**` so `.whisper.cpp` / `media` are never scanned.
+- `test/packages/**` — unit tests for the `server/packages/` seams (composer schema/prompt
+  assembly, local provider wire format incl. the ai@7 `allowSystemInMessages` opt-in,
+  registry + fallback chain + provenance).
+- `test/api/**` — integration tests against the built Nitro app (`/api/engines/availability`,
+  `/api/config`). These run without API keys: assertions are structural.
+
+No API keys are needed to run the suite. Never write tests that call Gemini/TTS cloud
+engines for real.
 
 ---
 
@@ -158,20 +167,32 @@ skydive-app/
 │   ├── index.css          # Tailwind + Nuxt UI imports, @theme fonts, custom effects
 │   ├── components/        # Panel SFCs (Tailwind utilities + Nuxt UI components)
 │   ├── stores/            # Pinia stores (session.ts)
-│   ├── utils/             # Framework-free logic (capture, voice, ws-binary)
+│   ├── views/             # SessionView + EvalsView (operator), PlayerView (Electron /player)
+│   ├── utils/             # Framework-free logic (capture, voice, ws-binary, electron-bridge)
 │   └── assets/            # Static assets
+├── electron/              # Stage 7 player runtime (built only in --mode player)
+│   ├── main.ts            # Sidecar lifecycle, tray, autostart, /skyrim/i capture
+│   │                      #   auto-source, global push-to-talk (F9)
+│   └── preload.ts         # contextBridge → window.skyguide (PTT events)
 ├── server/
-│   ├── voice/             # voice module (public API: index.ts)
-│   │   ├── config.ts      #   shared env, probe shape, language→voice helper
-│   │   ├── tts/
-│   │   │   ├── service.ts #   registry + per-platform fallback chains
-│   │   │   └── providers/ #   elevenlabs, mistral, piper, google, edge,
-│   │   │                  #   say.darwin.ts (platform-suffixed files)
-│   │   └── stt/
-│   │       ├── service.ts #   transcribe seam (cloud ↔ local)
-│   │       ├── providers/ #   elevenlabs (cloud)
-│   │       └── local/     #   catalog (pinned HF models), whisper-sidecar,
-│   │                      #   parakeet-cli, router
+│   ├── packages/          # engine-seam modules (import via public API only;
+│   │                      #   NOT "modules" — that name breaks the Tailwind
+│   │                      #   source scanner used by the @nuxt/ui plugin)
+│   │   ├── voice/         # TTS/STT module (public API: index.ts)
+│   │   │   ├── config.ts  #   shared env, probe shape, language→voice helper
+│   │   │   ├── tts/
+│   │   │   │   ├── service.ts #   registry + per-platform fallback chains
+│   │   │   │   └── providers/ #   elevenlabs, mistral, piper, google, edge,
+│   │   │   │                  #   say.darwin.ts (platform-suffixed files)
+│   │   │   └── stt/
+│   │   │       ├── service.ts #   transcribe seam (cloud ↔ local)
+│   │   │       ├── providers/ #   elevenlabs (cloud)
+│   │   │       └── local/     #   catalog (pinned HF models), whisper-sidecar,
+│   │   │                      #   parakeet-cli, router
+│   │   └── composer/      # composer module (public API: index.ts)
+│   │       ├── config.ts  #   env knobs + compose contract + prompts
+│   │       ├── service.ts #   registry + fallback chain + provenance
+│   │       └── providers/ #   gemini-cloud, local (OpenAI-compatible VLM)
 │   ├── api/               # Nitro API routes (file-based, thin)
 │   ├── routes/            # Nitro routes incl. /_ws WebSocket
 │   └── utils/             # cross-cutting only: engine, gate, gemini,

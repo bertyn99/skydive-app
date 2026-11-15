@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3";
-import { installWhisperModel, whisperInstallState } from "../../../voice";
+import { installWhisperModel, whisperInstallState } from "../../../packages/voice";
 
 /**
  * Starts downloading a pinned whisper model. Body: `{ modelId: string }`.

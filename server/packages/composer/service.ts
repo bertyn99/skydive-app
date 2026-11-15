@@ -15,7 +15,7 @@
 import { composeGeminiCloud } from "./providers/gemini-cloud";
 import { composeLocal } from "./providers/local";
 import { COMPOSER_LOCAL_BASE_URL, COMPOSER_LOCAL_MODEL } from "./config";
-import { GEMINI_MODEL_ID } from "../utils/gemini";
+import { GEMINI_MODEL_ID } from "../../utils/gemini";
 import type { ComposeInput, ComposeOutput } from "./config";
 
 export type ComposerEngineId = "gemini-cloud" | "local";
@@ -66,13 +66,17 @@ const REGISTRY: Record<ComposerEngineId, ComposerEngineEntry> = {
 				const res = await fetch(url, { signal: AbortSignal.timeout(1200) });
 				return res.ok
 					? { available: true, detail: `${COMPOSER_LOCAL_MODEL} at ${COMPOSER_LOCAL_BASE_URL}` }
-					: { available: false, detail: `${url} responded ${res.status}` };
+					: {
+							available: false,
+							detail: `${url} responded ${res.status}`,
+							setupHint: `Check the composer server at ${COMPOSER_LOCAL_BASE_URL} (is the vision model loaded?), or set COMPOSER_LOCAL_BASE_URL`,
+						};
 			} catch (err) {
 				return {
 					available: false,
 					detail: `no composer model at ${COMPOSER_LOCAL_BASE_URL} (${err instanceof Error ? err.message : String(err)})`,
 					setupHint:
-						"Start a vision model on an OpenAI-compatible server (e.g. `ollama pull qwen2.5vl:7b`), or set COMPOSER_LOCAL_BASE_URL",
+						"Start a vision model on an OpenAI-compatible endpoint that accepts inline video parts (vLLM / LM Studio with a Qwen-VL model work; Ollama's documented surface is image-only — it would reject the clip and fall back). Or set COMPOSER_LOCAL_BASE_URL",
 				};
 			}
 		},
@@ -147,12 +151,19 @@ export async function compose(
 	input: ComposeInput,
 	requested: ComposerEngineId,
 ): Promise<ComposerResult | null> {
-	const chain: ComposerEngineEntry[] = [
-		REGISTRY[requested],
-		...defaultChain()
-			.filter((entry) => entry.id !== requested)
-			.map((id) => REGISTRY[id]),
-	];
+	// The requested engine always gets its attempt; chain entries whose probe
+	// reports unavailable are skipped — an offline profile must not pay a
+	// cloud timeout (or a pointless keyless attempt) before reporting failure.
+	// A throwing probe counts as available: the chain still guards the leg.
+	const chain: ComposerEngineEntry[] = [REGISTRY[requested]];
+	for (const id of defaultChain().filter((id) => id !== requested)) {
+		const probe = await REGISTRY[id].probe().catch(() => null);
+		if (probe && !probe.available) {
+			console.warn(`[composer] skipping ${id} — probe: ${probe.detail}`);
+			continue;
+		}
+		chain.push(REGISTRY[id]);
+	}
 
 	let fallbackFrom: ComposerEngineId | null = null;
 	for (const entry of chain) {

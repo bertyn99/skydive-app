@@ -37,3 +37,7 @@ skills-lock.json
 *.njsproj
 *.sln
 *.sw?
+
+# Stage 7 player runtime build artifacts
+dist-electron
+release

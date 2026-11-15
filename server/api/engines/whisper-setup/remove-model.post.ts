@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3";
-import { removeWhisperModel } from "../../../voice";
+import { removeWhisperModel } from "../../../packages/voice";
 
 /** Deletes a local model copy (file + receipt). Body: `{ modelId: string }`. */
 export default defineEventHandler(async (event) => {

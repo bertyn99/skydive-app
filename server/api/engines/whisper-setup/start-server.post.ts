@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3";
-import { startWhisperServer } from "../../../voice";
+import { startWhisperServer } from "../../../packages/voice";
 
 /**
  * Starts the whisper.cpp sidecar against a verified model (defaults to the

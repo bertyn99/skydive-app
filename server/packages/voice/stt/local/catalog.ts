@@ -556,7 +556,7 @@ function onceDrained(stream: import("node:fs").WriteStream): Promise<void> {
 
 function streamFinished(stream: import("node:fs").WriteStream): Promise<void> {
 	return new Promise((resolve, reject) => {
-		stream.end((err) => (err ? reject(err) : resolve()));
+		stream.end((err?: Error | null) => (err ? reject(err) : resolve()));
 	});
 }
 

@@ -25,3 +25,4 @@ export {
 	type ComposerResult,
 } from "./service";
 export type { ComposeInput, ComposeOutput } from "./config";
+export { composerSystemMessages, composerUserText, composeSchema } from "./config";

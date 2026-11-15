@@ -1,16 +1,16 @@
 import { defineEventHandler } from "h3";
-import { probeWhisper } from "../../voice";
+import { probeWhisper } from "../../packages/voice";
 import {
 	COMPOSER_ENGINE_IDS,
 	probeComposerEngine,
 	type ComposerEngineId,
-} from "../../composer";
+} from "../../packages/composer";
 import {
 	TTS_ENGINE_IDS,
 	probeTtsEngine,
 	ttsEngineLabel,
 	type TtsEngineId,
-} from "../../voice";
+} from "../../packages/voice";
 
 export interface EngineAvailability {
 	engine: string;

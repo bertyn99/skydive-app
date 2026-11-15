@@ -29,14 +29,14 @@ import {
 	resolveTtsEngine,
 	synthesizeSpeech,
 	type TtsEngineId,
-} from "../voice";
+} from "../packages/voice";
 import {
 	compose,
 	type ComposerEngineId,
 	defaultComposerEngine,
 	isComposerEngineId,
 	resolveComposerEngine,
-} from "../composer";
+} from "../packages/composer";
 import { isSilent } from "./silence";
 import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
@@ -348,7 +348,7 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 				engine: `${state.gateEngine}·${gateProv.modelId}`,
 				latencyMs: gateMs,
 				relevance: RELEVANCE_VALUE[decision.relevance],
-				composer: state.composerEngine,
+				composerEngine: state.composerEngine,
 				composerLatencyMs: composerMs,
 			},
 		});
@@ -356,8 +356,16 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 	}
 
 	const observation = composer.observation;
+	// An honest "cannot see" is a veto regardless of the relevance the
+	// composer reports — otherwise a canned apology with high relevance is
+	// spoken on every re-trigger of the same clip and the tombstone never
+	// records (repeat loop).
+	const unreadable = composer.unreadable === true;
 	const composed =
-		observation !== null && !isSilent(observation) && composer.relevance >= 4;
+		!unreadable &&
+		observation !== null &&
+		!isSilent(observation) &&
+		composer.relevance >= 4;
 	if (!composed && decision.summary) {
 		// Composer vetoed the gate. Nothing entered the real history, so the
 		// next identical clip would re-trigger gate-speak → composer call,
@@ -367,7 +375,7 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 		log(
 			"info",
 			"gate",
-			`Composer vetoed the gate — tombstone recorded: "${decision.summary}"`,
+			`Composer vetoed the gate${unreadable ? " (clip unreadable)" : ""} — tombstone recorded: "${decision.summary}"`,
 		);
 	}
 	if (composer.provenance.fallbackFrom) {
@@ -380,13 +388,15 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 	log(
 		"info",
 		"composer",
-		`${composer.provenance.engine}/${composer.provenance.modelId} (${composer.provenance.latencyMs}ms): relevance=${composer.relevance}, observation=${observation ?? "(silent)"}`,
+		`${composer.provenance.engine}/${composer.provenance.modelId} (${composer.provenance.latencyMs}ms): relevance=${composer.relevance}${unreadable ? ", unreadable" : ""}, observation=${observation ?? "(silent)"}`,
 	);
 
 	await speakToPlayer({
-		text: observation,
-		relevance: composer.relevance,
-		actions: composer.actions,
+		// An unreadable clip vetoes speech entirely: the tombstone above
+		// breaks the repeat loop, and nothing reaches the player.
+		text: unreadable ? null : observation,
+		relevance: unreadable ? RELEVANCE_VALUE.minor : composer.relevance,
+		actions: unreadable ? [] : composer.actions,
 		latencyMs: gateMs + composerMs,
 		isQuestion: false,
 		provenance: {
@@ -395,7 +405,7 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 			latencyMs: gateMs,
 			// Effective outcome (what actually reached the player), not the
 			// gate's intention.
-			relevance: composer.relevance,
+			relevance: unreadable ? RELEVANCE_VALUE.minor : composer.relevance,
 			composer: composer.provenance.modelId,
 			composerEngine: composer.provenance.engine,
 			composerLatencyMs: composer.provenance.latencyMs,
@@ -491,25 +501,50 @@ function statusPayload() {
 }
 
 /**
- * Derived profile label for the dashboard: "offline" when every seam routes
- * locally, "cloud" when the pipeline runs on cloud engines, "custom" otherwise.
+ * One-shot engine presets (Stage 6): the literal seam values per profile.
+ * Single source of truth — applyProfile() writes them, activeProfile()
+ * detects them, so the badge and the buttons can never drift apart.
+ */
+const PROFILE_PRESETS: ReadonlyArray<{
+	name: "offline" | "cloud";
+	pipeline: PipelineMode;
+	gateEngine: GateEngineId;
+	composerEngine: ComposerEngineId;
+	ttsEngine: TtsEngineId;
+	sttEngine: SttEngineId;
+}> = [
+	{
+		name: "offline",
+		pipeline: "gated",
+		gateEngine: "local",
+		composerEngine: "local",
+		ttsEngine: "piper-local",
+		sttEngine: "whisper-local",
+	},
+	{
+		name: "cloud",
+		pipeline: "fused",
+		gateEngine: "gemini",
+		composerEngine: "gemini-cloud",
+		ttsEngine: "elevenlabs",
+		sttEngine: "elevenlabs",
+	},
+];
+
+/**
+ * Derived profile label for the dashboard: the preset every seam currently
+ * matches, "custom" otherwise.
  */
 function activeProfile(): "offline" | "cloud" | "custom" {
-	const offline =
-		state.pipeline === "gated" &&
-		state.gateEngine === "local" &&
-		state.composerEngine === "local" &&
-		state.ttsEngine === "piper-local" &&
-		state.sttEngine === "whisper-local";
-	if (offline) return "offline";
-	const cloud =
-		state.pipeline === "fused" &&
-		state.gateEngine === "gemini" &&
-		state.composerEngine === "gemini-cloud" &&
-		state.ttsEngine === "elevenlabs" &&
-		state.sttEngine === "elevenlabs";
-	if (cloud) return "cloud";
-	return "custom";
+	const preset = PROFILE_PRESETS.find(
+		(p) =>
+			state.pipeline === p.pipeline &&
+			state.gateEngine === p.gateEngine &&
+			state.composerEngine === p.composerEngine &&
+			state.ttsEngine === p.ttsEngine &&
+			state.sttEngine === p.sttEngine,
+	);
+	return preset?.name ?? "custom";
 }
 
 /**
@@ -518,27 +553,23 @@ function activeProfile(): "offline" | "cloud" | "custom" {
  * hints, and availability can change without re-applying the profile.
  */
 export function applyProfile(profile: unknown): void {
-	if (profile === "offline") {
-		updateConfig({
-			pipeline: "gated",
-			gateEngine: "local",
-			composerEngine: "local",
-			ttsEngine: "piper-local",
-			sttEngine: "whisper-local",
-		});
-		log("info", "engine", "Offline profile applied (gate/composer/tts/stt → local)");
-	} else if (profile === "cloud") {
-		updateConfig({
-			pipeline: "fused",
-			gateEngine: "gemini",
-			composerEngine: "gemini-cloud",
-			ttsEngine: "elevenlabs",
-			sttEngine: "elevenlabs",
-		});
-		log("info", "engine", "Cloud profile applied (gate/composer/tts/stt → cloud)");
-	} else {
+	const preset = PROFILE_PRESETS.find((p) => p.name === profile);
+	if (!preset) {
 		log("warn", "engine", `Unknown profile: ${String(profile)}`);
+		return;
 	}
+	updateConfig({
+		pipeline: preset.pipeline,
+		gateEngine: preset.gateEngine,
+		composerEngine: preset.composerEngine,
+		ttsEngine: preset.ttsEngine,
+		sttEngine: preset.sttEngine,
+	});
+	log(
+		"info",
+		"engine",
+		`${preset.name[0].toUpperCase()}${preset.name.slice(1)} profile applied (pipeline + gate/composer/tts/stt)`,
+	);
 }
 
 export function start() {

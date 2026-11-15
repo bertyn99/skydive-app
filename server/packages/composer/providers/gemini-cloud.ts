@@ -3,18 +3,20 @@
 
 import { Output, generateText, type UserModelMessage } from "ai";
 import {
+	COMPOSER_TIMEOUT_MS,
 	composerSystemMessages,
+	composerUserText,
 	composeSchema,
 	type ComposeInput,
 	type ComposeOutput,
 } from "../config";
-import { GEMINI_MODEL, GEMINI_MODEL_ID } from "../../utils/gemini";
+import { GEMINI_MODEL, GEMINI_MODEL_ID } from "../../../utils/gemini";
 
 export async function composeGeminiCloud(input: ComposeInput): Promise<ComposeOutput> {
 	const { output } = await generateText({
 		model: GEMINI_MODEL,
 		output: Output.object({ schema: composeSchema, name: "skyguide_composer" }),
-		abortSignal: AbortSignal.timeout(60_000),
+		abortSignal: AbortSignal.timeout(COMPOSER_TIMEOUT_MS),
 		instructions: composerSystemMessages(input),
 		messages: [composerUserMessage(input)],
 	});
@@ -26,12 +28,7 @@ function composerUserMessage(input: ComposeInput): UserModelMessage {
 		role: "user",
 		content: [
 			{ type: "file", data: input.clip.buffer, mediaType: input.clip.mediaType },
-			{
-				type: "text",
-				text: input.question
-					? `Question du joueur : « ${input.question} »`
-					: "Formule l'observation (JSON strict).",
-			},
+			{ type: "text", text: composerUserText(input) },
 		],
 	};
 }

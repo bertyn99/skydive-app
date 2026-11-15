@@ -3,12 +3,19 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
+  "author": "SkyGuide",
   "packageManager": "pnpm@12.4.2",
   "scripts": {
     "dev": "vite",
+    "dev:player": "vite --mode player",
     "build": "vue-tsc -b && vite build",
+    "build:player": "vue-tsc -b && vite build --mode player",
+    "package:player": "pnpm run build:player && electron-builder --win",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "fetch:letsplays": "node scripts/fetch-letsplays.ts",
     "setup:whisper": "bash scripts/setup-whisper.sh"
   },
@@ -37,13 +44,25 @@
     "@nuxt/ui": "^4.12.0",
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^6.0.10",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
     "eslint": "^10.14.0",
     "eslint-plugin-vue": "^10.12.1",
     "globals": "^17.14.0",
+    "nitro-test-utils": "^4.0.2",
     "tailwindcss": "^4.3.5",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
     "vite": "^8.3.7",
+    "vite-plugin-electron": "^1.2.0",
+    "vitest": "^5.1.0",
     "vue-tsc": "^3.3.14"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild"
+    ]
   }
 }

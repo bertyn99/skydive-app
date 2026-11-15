@@ -101,7 +101,7 @@ export async function transcribeParakeetLocal(
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
-				const message = err.code === "ENOENT"
+				const message = "code" in err && err.code === "ENOENT"
 					? `parakeet-cli not found: ${PARAKEET_BINARY} (run pnpm setup:whisper)`
 					: `parakeet-cli spawn failed: ${err.message}`;
 				reject(new Error(message));
@@ -153,7 +153,7 @@ function convertToWav(inputPath: string, wavPath: string, mimeType: string): Pro
 		});
 		child.on("error", (err) => {
 			clearTimeout(timer);
-			const message = err.code === "ENOENT"
+			const message = "code" in err && err.code === "ENOENT"
 				? "ffmpeg not found — install it (the browser mic produces webm/opus)"
 				: `ffmpeg spawn failed: ${err.message}`;
 			reject(new Error(message));

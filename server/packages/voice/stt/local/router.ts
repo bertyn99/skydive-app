@@ -121,7 +121,7 @@ export async function transcribeWhisperLocal(
 
 	const whisper = await bestInstalledModel("whisper");
 	if (whisper) {
-		return transcribeWithWhisperServer(audioBuffer, mimeType, whisper);
+		return transcribeWithWhisperServer(audioBuffer, mimeType);
 	}
 
 	throw new Error(
