@@ -39,9 +39,17 @@ const SIDECAR_RESTART_MAX = 5;
 const SIDECAR_RESTART_DELAY_MS = 2000;
 const HEALTH_TIMEOUT_MS = 30_000;
 
-// 16×16 teal PNG, embedded so packaging needs no asset pipeline.
+// 16×16 teal PNG, embedded as a fallback when the app icon file is missing
+// (packaging ships the real branding via extraResources — see appIconPath).
 const TRAY_ICON_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGklEQVR4nGMQ2bHsPyWYYdSAUQNGDRguBgAAftxxHyGKMRkAAAAASUVORK5CYII=";
+
+/** Branding icon: resources/icon.png when packaged, repo build/ when dev. */
+function appIconPath(): string {
+	return app.isPackaged
+		? join(process.resourcesPath, "icon.png")
+		: join(import.meta.dirname, "..", "build", "icon.png");
+}
 
 // --- State -------------------------------------------------------------------
 
@@ -188,6 +196,7 @@ async function createWindow(): Promise<void> {
 		height: 768,
 		show: false, // hidden player runtime; tray menu reveals it for debugging
 		title: "SkyGuide Player",
+		icon: appIconPath(),
 		webPreferences: {
 			preload: join(import.meta.dirname, "preload.mjs"),
 			sandbox: false, // ESM preload
@@ -208,7 +217,13 @@ async function createWindow(): Promise<void> {
 }
 
 function createTray(): void {
-	const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_BASE64}`);
+	// Real branding when the icon file is around (dev: build/, packaged:
+	// resources/), embedded square as fallback.
+	let icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_BASE64}`);
+	const fileIcon = nativeImage.createFromPath(appIconPath());
+	if (!fileIcon.isEmpty()) {
+		icon = fileIcon.resize({ width: 16, height: 16 });
+	}
 	tray = new Tray(icon);
 	tray.setToolTip("SkyGuide Player");
 	const menu: MenuItemConstructorOptions[] = [

@@ -1,8 +1,25 @@
+<p align="center">
+  <img src="docs/branding/hero.jpg" alt="The Elder Scrolls V — SKYGUIDE" width="100%">
+</p>
+
 # SkyGuide — Skyrim Accessibility Assistant
 
-A real-time screen reader for blind and visually impaired gamers. The app captures
-the game screen, sends the video to an AI model (Gemini) that describes the scene,
-and reads the description aloud via text-to-speech.
+**SkyGuide** is a real-time accessibility assistant for blind and visually
+impaired *Skyrim* players. A Skyrim Platform plugin streams game state, a
+capture source streams short video clips, and a two-tier AI pipeline turns
+them into spoken guidance — a **Gate** decides *whether* the player should
+hear something right now, then a **Composer** phrases the observation in
+French. Every broadcast carries provenance (which engine spoke, how long it
+took).
+
+One app, two surfaces:
+
+- **Web dashboard** (`/`) — the operator/dev console: live session,
+  provenance chips, engine pickers, eval matrix
+- **Electron player runtime** (`pnpm dev:player` / `pnpm package:player`) —
+  the blind player's shell: hidden window, tray + autostart, global
+  push-to-talk (F9), capture auto-targeting the Skyrim window, direct audio
+  out
 
 ## How it works
 
@@ -13,14 +30,14 @@ and reads the description aloud via text-to-speech.
 4. The description is broadcast back to the browser and spoken aloud via **Mistral TTS**.
 
 ```
-Browser                         Server
-┌─────────────────┐      ┌──────────────────────┐
-│ getDisplayMedia  │      │ Nitro WebSocket      │
-│ → MediaBunny    │─WS──▶│ → Gemini (describe)  │
-│   (MP4 encode)  │      │ → Mistral TTS        │
-│                 │◀─WS──│ → broadcast desc/audio│
-│ <video> preview │      └──────────────────────┘
-└─────────────────┘
+Capture source                  Server (Nitro, :3000)
+┌─────────────────┐      ┌────────────────────────────┐
+│ getDisplayMedia  │      │ Gate (shouldSpeak? engine)  │
+│ → MediaBunny    │─WS──▶│ → Composer (French prose)   │
+│   (MP4 encode)  │      │ → voice module TTS chain    │
+│                 │◀─WS──│   (Mistral/ElevenLabs/Piper)│
+│ audio queue     │      │   provenance on everything  │
+└─────────────────┘      └────────────────────────────┘
 ```
 
 ## Prerequisites

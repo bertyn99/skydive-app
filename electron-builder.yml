@@ -16,8 +16,11 @@ files:
 extraResources:
   - from: .output
     to: nitro
+  - from: build/icon.png
+    to: icon.png
 asar: true
 win:
+  icon: build/icon.png
   target:
     - target: nsis
       arch:
