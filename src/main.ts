@@ -10,6 +10,7 @@ import App from './App.vue'
 import DashboardShell from './layouts/DashboardShell.vue'
 import SessionView from './views/SessionView.vue'
 import EvalsView from './views/EvalsView.vue'
+import PlayerView from './views/PlayerView.vue'
 
 const router = createRouter({
 	history: createWebHistory(),
@@ -22,6 +23,8 @@ const router = createRouter({
 				{ path: 'evals', name: 'evals', component: EvalsView },
 			],
 		},
+		// Electron player runtime (Stage 7): session core, no operator UI.
+		{ path: '/player', name: 'player', component: PlayerView },
 		{ path: '/session', redirect: '/' },
 		{ path: '/console', redirect: '/' },
 	],

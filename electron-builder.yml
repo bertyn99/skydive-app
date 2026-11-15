@@ -1,0 +1,30 @@
+# SkyGuide player runtime packaging (Stage 7): Electron shell + Nitro
+# sidecar. The sidecar runs the packaged Nitro build with Electron's own
+# Node runtime (ELECTRON_RUN_AS_NODE) — no system Node on the player machine.
+# Build flow: pnpm build:player (vite build --mode player → client + nitro in
+# .output, electron main/preload in dist-electron) then pnpm package:player
+# (electron-builder --win → NSIS installer in release/).
+appId: dev.skyguide.player
+productName: SkyGuide Player
+directories:
+  output: release
+files:
+  - dist-electron/**/*
+  - package.json
+# Whole .output (server + public): the sidecar serves the client from
+# ../public relative to its entry — structure must be preserved.
+extraResources:
+  - from: .output
+    to: nitro
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: SkyGuide-Player-${version}-setup.exe

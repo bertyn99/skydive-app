@@ -113,16 +113,21 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
 
 ## Stage 6 — Local Composer + full-local mode (System 2) — ✅ shipped (cloud/local picker + offline profile)
 
-- [x] Composer module (`server/composer/`) — architecture mirrors
-      `server/voice/`: public API (`index.ts`), `config.ts` (env knobs +
+- [x] Composer module (`server/packages/composer/`) — architecture mirrors
+      `server/packages/voice/`: public API (`index.ts`), `config.ts` (env knobs +
       compose contract + prompts), `providers/` (one file per engine),
       `service.ts` (registry + `COMPOSER_CHAIN` fallback chain with
       provenance: engine, modelId, fallbackFrom, latency).
 - [x] Composer engines: `gemini-cloud` (compose-only Gemini call — the
       decision was made upstream, plus operator prompt override support)
       and `local` (self-hosted vision model behind an OpenAI-compatible
-      endpoint — Ollama/LM Studio/vLLM, `COMPOSER_LOCAL_BASE_URL/MODEL`,
-      e.g. Qwen2.5-VL). Availability probes feed the dashboard.
+      endpoint — `COMPOSER_LOCAL_BASE_URL/MODEL`). Untrusted data (mod
+      context, gate intention) rides in the user message, framed as data —
+      never at system level. The clip goes up as a `video_url` part
+      (ai@7 serialization of a video/* data URL): vLLM / LM Studio accept
+      inline video; Ollama's documented surface is image-only, so its leg
+      fails and the chain falls back. `maxRetries: 0` on the local leg —
+      fast-fail into the chain instead of SDK backoff.
 - [x] Gated pipeline composes through the seam: gate summary becomes the
       composer's intention; composer veto still records a history tombstone;
       all-engines-failed records a tombstone + broadcast SILENCE. Provenance
@@ -139,18 +144,41 @@ experience without launching Skyrim (see GLOSSARY.md for vocabulary).
       answering lands with the Electron runtime work.
 - [ ] Clef-flash as the hosted decision model stays tracked on YGG-237.
 
-## Stage 7 — Player runtime (Electron shell) — triggered by first blind playtest
+## Stage 7 — Player runtime (Electron shell) — implemented, Windows runtime pending playtest
 
 See ADR-0001. One app, two surfaces: web dashboard = operator/dev; Electron shell =
 blind player (hidden UI, tray, autostart, global push-to-talk, direct audio out,
 desktopCapturer auto-source by window title). Built with `vite-plugin-electron` on the
 existing vite config; Nitro server runs as sidecar on port 3000 (SKSE plugin unchanged).
 
-- [ ] Electron main: sidecar lifecycle (start/health-check/restart), tray + autostart
-- [ ] Hidden renderer running the shared session core (store/voice/ws logic, DOM-free)
-- [ ] desktopCapturer source matching /skyrim/i — replaces getDisplayMedia picker
-- [ ] Global push-to-talk hotkey (hex pattern) + direct audio output
-- [ ] electron-builder NSIS installer (Windows-only target)
+- [x] Electron main (`electron/main.ts`): sidecar lifecycle — attach in dev
+      (vite already runs Nitro), spawn in production via
+      `ELECTRON_RUN_AS_NODE=1 process.execPath resources/nitro/server/index.mjs`
+      (no system Node on the player machine), health check against
+      `/api/config` with restart backoff (max 5 attempts); tray (embedded
+      PNG icon, show/hide, autostart checkbox via `app.setLoginItemSettings`,
+      quit); single-instance lock; `--hidden` startup flag.
+- [x] Hidden renderer: `/player` route (`src/views/PlayerView.vue`) runs the
+      shared session core — same store, WS, capture, voice, audio queue as
+      the dashboard; window hidden by default (tray reveals), audio out
+      unlocked (`autoplayPolicy: no-user-gesture-required`).
+- [x] desktopCapturer source matching `/skyrim/i` — `setDisplayMediaRequestHandler`
+      answers the renderer's existing getDisplayMedia call with the Skyrim
+      window (fallback: first source) — the web dashboard keeps its picker.
+- [x] Global push-to-talk: `globalShortcut` F9 (env `SKYGUIDE_PTT_KEY`),
+      toggle semantics → `webContents.send('skyguide:ptt')` → preload bridge
+      (`window.skyguide`, `src/utils/electron-bridge.ts`) → store
+      `startVoice`/`stopVoice`.
+- [x] electron-builder NSIS config (`electron-builder.yml`, `pnpm
+      package:player`) — oneClick installer, `.output` shipped as
+      extraResources so the sidecar serves the client too.
+- [x] Electron only builds in player mode (`--mode player` gates the plugin
+      in `vite.config.ts`) — plain `pnpm dev` / `pnpm build` never touch it.
+
+Verification: `pnpm build` / `build:player` / lint / tests all green
+(electron main+preload emitted to `dist-electron/`); runtime smoke (tray,
+PTT, auto-source, installer) needs a GUI machine — headless dev box can't
+execute Electron. Trigger for "done": first blind playtest on Windows.
 
 ## Notes
 
