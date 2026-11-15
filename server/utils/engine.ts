@@ -38,6 +38,7 @@ import {
 	resolveComposerEngine,
 } from "../packages/composer";
 import { isSilent } from "./silence";
+import { enqueueActions } from "./action-outbox";
 import type { GameStatePayload } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
 import { SkyrimFileConnector } from "./skyrim-file-connector";
@@ -189,7 +190,10 @@ async function speakToPlayer(input: {
 	});
 
 	if (input.actions.length > 0) {
+		// Dashboard clients (WS) and the SKSE plugin (HTTP polling) both
+		// consume pipeline actions.
 		broadcast({ type: "actions", actions: input.actions });
+		enqueueActions(input.actions, input.provenance.tier);
 		log("info", "engine", `Actions suggested: ${input.actions.map((a) => a.type).join(", ")}`);
 	}
 
