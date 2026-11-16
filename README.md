@@ -91,9 +91,15 @@ npm, no external tools (`@distube/ytdl-core` downloads, mediabunny slices):
 ```bash
 pnpm fetch:letsplays                     # curated Skyrim playthroughs
 pnpm fetch:letsplays --list              # see what's in the curated list
+pnpm fetch:letsplays --playlist <id|url> --list          # enumerate a playlist
+pnpm fetch:letsplays --playlist <id|url> --max 3 --section 12:00-14:00
 pnpm fetch:letsplays --search "query"    # search YouTube (top 3)
 pnpm fetch:letsplays --id <url|id> --section 12:00-14:00   # grab a slice
 ```
+
+French source material: Bob Lennon's *L'Intégrale Skyrim* (200 FR-commentary
+episodes, ~15 min each) works well for evals —
+`pnpm fetch:letsplays --playlist PL89A711C53A33F2E4 --list`.
 
 Downloads are large (multi-hour videos), which is why `media/` is gitignored —
 the script is the reproducible path on a fresh machine. Quality defaults to
@@ -142,6 +148,7 @@ vars set the defaults:
 | `SKYGUIDE_PORT` | `3000` | Nitro/sidecar port (Electron) |
 | `SKYGUIDE_PTT_KEY` | `F9` | global push-to-talk accelerator |
 | `WHISPER_STT_LANGUAGE` | `fr` | listening language |
+| `SKYRIM_CONTEXT_FILE_PATH` | `./src/assets/state.json` | Absolute path to the SKSE plugin dump (`Data/Platform/SkyGuide/state.json`). Gate + Composer read this; without it they never see live mod context. |
 
 Local Whisper models install from the dashboard (`pnpm setup:whisper`
 bootstraps the toolchain).

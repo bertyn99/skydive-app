@@ -13,6 +13,11 @@
  *   pnpm fetch:letsplays --list                show the curated list
  *   pnpm fetch:letsplays --id <id|url>         download one specific video
  *   pnpm fetch:letsplays --search "<query>"    search YouTube, download top results
+ *   pnpm fetch:letsplays --playlist <id|url> [--list]
+ *                                              enumerate a playlist; --list
+ *                                              prints entries in order,
+ *                                              otherwise downloads the first
+ *                                              --max (use with --section)
  *   pnpm fetch:letsplays --max 3               cap search results (default 3)
  *   pnpm fetch:letsplays --height 1080         cap resolution (default 1080)
  *   pnpm fetch:letsplays --section 12:00-14:00 stream only this window into
@@ -77,6 +82,7 @@ interface CuratedVideo {
 interface FetchArgs {
 	ids: string[];
 	search: string | null;
+	playlist: string | null;
 	max: number;
 	height: number;
 	section: string | null;
@@ -121,6 +127,7 @@ function parseArgs(argv: string[]): FetchArgs {
 	const args: FetchArgs = {
 		ids: [],
 		search: null,
+		playlist: null,
 		max: 3,
 		height: 1080,
 		section: null,
@@ -135,6 +142,9 @@ function parseArgs(argv: string[]): FetchArgs {
 				break;
 			case "--search":
 				args.search = argv[++i] ?? null;
+				break;
+			case "--playlist":
+				args.playlist = argv[++i] ?? null;
 				break;
 			case "--max":
 				args.max = Number(argv[++i]);
@@ -712,7 +722,8 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	if (args.list) {
+	// Playlist listing takes precedence over the curated list.
+	if (args.list && !args.playlist) {
 		console.log("Curated lets-plays:\n");
 		for (const video of CURATED) {
 			console.log(`  ${video.id}  ${video.title}`);
@@ -728,7 +739,37 @@ async function main(): Promise<void> {
 	}
 
 	let targets: Target[];
-	if (args.ids.length > 0) {
+	if (args.playlist) {
+		if (args.dryRun) {
+			console.log(`[dry-run] would enumerate playlist ${args.playlist} (first ${args.max})`);
+			return;
+		}
+		console.log(`Fetching playlist: ${args.playlist} …`);
+		const info = await ytdl.getPlaylist(args.playlist);
+		console.log(
+			`Playlist "${info.title ?? args.playlist}" — ${info.videos.length} videos${
+				info.videoCount !== undefined && info.videoCount !== info.videos.length
+					? ` (${info.videoCount} listed, unplayable filtered)`
+					: ""
+			}`,
+		);
+		if (args.list) {
+			for (const [index, video] of info.videos.entries()) {
+				const minutes =
+					video.lengthSeconds === undefined
+						? "?"
+						: `${Math.floor(video.lengthSeconds / 60)}:${String(video.lengthSeconds % 60).padStart(2, "0")}`;
+				console.log(`  ${index + 1}. ${video.id}  [${minutes}]  ${video.title}`);
+			}
+			console.log(`\nDownload with: pnpm fetch:letsplays --playlist ${args.playlist} --max 3 [--section 12:00-14:00]`);
+			console.log(`Output directory: ${OUTPUT_DIR}/ (gitignored)`);
+			return;
+		}
+		targets = info.videos.slice(0, args.max).map((video) => ({
+			id: video.id,
+			title: video.title,
+		}));
+	} else if (args.ids.length > 0) {
 		targets = args.ids.map((id) => ({
 			id: parseVideoId(id) ?? id,
 		}));
