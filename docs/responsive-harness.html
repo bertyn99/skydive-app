@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SkyGuide responsive harness</title>
+<style>
+  body { margin: 0; background: #0b0f14; color: #cbd5e1; font: 12px/1.4 ui-monospace, monospace; padding: 16px; }
+  h2 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #7dd3fc; margin: 18px 0 6px; }
+  .frame { position: relative; overflow: hidden; border: 1px solid #334155; border-radius: 6px; }
+  .frame iframe { border: 0; display: block; }
+  .row { margin-bottom: 10px; }
+  table { border-collapse: collapse; margin-bottom: 6px; }
+  td, th { border: 1px solid #334155; padding: 2px 8px; text-align: left; }
+</style>
+</head>
+<body>
+<h1>SkyGuide responsive harness — each frame is a real viewport (media queries apply)</h1>
+<table>
+  <tr><th>frame</th><th>viewport</th><th>scaled to</th><th>breakpoint</th></tr>
+  <tr><td>A</td><td>2560×1300</td><td>0.36</td><td>2xl</td></tr>
+  <tr><td>B</td><td>1920×1200</td><td>0.48</td><td>xl</td></tr>
+  <tr><td>C</td><td>1440×1000</td><td>0.64</td><td>xl</td></tr>
+  <tr><td>D</td><td>1280×950</td><td>0.72</td><td>lg</td></tr>
+  <tr><td>E</td><td>1140×950</td><td>0.80</td><td>lg</td></tr>
+  <tr><td>F</td><td>1024×900</td><td>0.90</td><td>lg edge</td></tr>
+  <tr><td>G</td><td>900×900</td><td>1.00</td><td>stacked</td></tr>
+  <tr><td>H</td><td>640×800</td><td>1.00</td><td>stacked</td></tr>
+</table>
+<div id="frames"></div>
+<script>
+  const specs = [
+    ["A", 2560, 1300, 0.36],
+    ["B", 1920, 1200, 0.48],
+    ["C", 1440, 1000, 0.64],
+    ["D", 1280, 950, 0.72],
+    ["E", 1140, 950, 0.80],
+    ["F", 1024, 900, 0.90],
+    ["G", 900, 900, 1.00],
+    ["H", 640, 800, 1.00],
+  ];
+  const root = document.getElementById("frames");
+  for (const [label, w, h, scale] of specs) {
+    const title = document.createElement("h2");
+    title.textContent = `${label} — ${w}×${h} (scale ${scale})`;
+    root.appendChild(title);
+    const holder = document.createElement("div");
+    holder.className = "frame";
+    holder.style.width = Math.round(w * scale) + "px";
+    holder.style.height = Math.round(h * scale) + "px";
+    const frame = document.createElement("iframe");
+    frame.src = "http://localhost:3000/";
+    frame.style.width = w + "px";
+    frame.style.height = h + "px";
+    frame.style.transform = `scale(${scale})`;
+    frame.style.transformOrigin = "top left";
+    holder.appendChild(frame);
+    root.appendChild(holder);
+  }
+</script>
+</body>
+</html>

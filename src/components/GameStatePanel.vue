@@ -69,7 +69,7 @@ function clamp(value: number): number {
 					: "Waiting for the SKSE plugin. No mod context in a sim session" }}
 			</p>
 		</div>
-		<div v-else-if="gameState.player" class="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-4">
+		<div v-else-if="gameState.player" class="flex flex-1 flex-col gap-3.5 p-4">
 			<div class="flex flex-col gap-1.5">
 				<div class="flex items-center justify-between">
 					<span class="font-mono text-[10px] uppercase tracking-[0.12em] text-dimmed">

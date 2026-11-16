@@ -359,7 +359,7 @@ function save() {
 </script>
 
 <template>
-	<section class="flex min-h-0 min-w-0 flex-col overflow-y-auto bg-default" aria-label="Session controls">
+	<section class="flex min-h-0 min-w-0 flex-col bg-default" aria-label="Session controls">
 		<div class="flex shrink-0 items-center justify-between border-b border-default px-4 py-2.5">
 			<h2 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
 				Session

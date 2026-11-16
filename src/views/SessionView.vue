@@ -16,7 +16,7 @@ const { source } = storeToRefs(session);
 <template>
 	<UDashboardPanel
 		id="session"
-		:ui="{ body: 'flex min-h-0 flex-1 flex-col overflow-hidden p-0' }"
+		:ui="{ body: 'flex min-h-0 flex-1 flex-col overflow-hidden overflow-x-hidden p-0' }"
 	>
 		<template #header>
 			<UDashboardNavbar>
@@ -54,23 +54,25 @@ const { source } = storeToRefs(session);
 		<template #body>
 			<StatusBar />
 
-			<!-- Two-column instrument grid: stage column + control rail. Each column
-			     manages its own overflow, so nothing can overlap at any width. -->
+			<!-- Two-column instrument grid: stage column + control rail. The rail is
+			     the only vertical scroller at lg+; below lg the panel scrolls as a
+			     whole. Rail width is fluid (clamp) so mid-size desktops keep a wide
+			     stage. -->
 			<main
-				class="grid min-h-0 flex-1 gap-px overflow-y-auto bg-(--ui-border-accented)
-					lg:grid-cols-[minmax(0,1fr)_360px] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_400px]"
+				class="grid min-h-0 min-w-0 flex-1 gap-px overflow-y-auto bg-(--ui-border-accented)
+					lg:grid-cols-[minmax(0,1fr)_clamp(300px,26vw,380px)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]"
 			>
-				<div class="flex min-h-0 min-w-0 flex-col gap-px">
+				<div class="flex min-h-0 min-w-0 flex-col gap-px max-lg:min-h-fit">
 					<ScreenViewer class="max-lg:h-[52dvh] max-lg:shrink-0" />
-					<TelemetryPanel class="min-h-0 flex-1 max-lg:min-h-[420px] max-lg:shrink-0" />
+					<TelemetryPanel class="min-h-0 flex-1 max-lg:min-h-[360px] max-lg:shrink-0" />
 				</div>
 
 				<div
-					class="flex min-h-0 min-w-0 flex-col gap-px max-lg:shrink-0
+					class="flex min-h-0 min-w-0 flex-col gap-px max-lg:min-h-fit
 					lg:overflow-y-auto lg:border-l lg:border-(--ui-border-accented)"
 				>
-					<ConfigPanel class="max-lg:shrink-0" />
-					<GameStatePanel class="max-lg:shrink-0" />
+					<ConfigPanel class="shrink-0" />
+					<GameStatePanel class="shrink-0" />
 				</div>
 			</main>
 		</template>

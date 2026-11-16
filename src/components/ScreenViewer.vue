@@ -218,7 +218,7 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 				</div>
 			</div>
 
-			<div v-else class="flex min-h-0 flex-1 flex-col gap-3">
+			<div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
 				<template v-if="!videoFileUrl">
 					<UFileUpload
 						accept="video/*"
