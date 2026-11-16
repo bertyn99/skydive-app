@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, onMounted, ref, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import { storeToRefs } from "pinia";
 import { useQuery } from "@tanstack/vue-query";
 import { useSessionStore } from "../stores/session";
@@ -19,6 +19,7 @@ const stageVideo = useTemplateRef<HTMLVideoElement>("stageVideo");
 // Sim playback state (DOM-owned here; the store only tracks playing state)
 const videoFileUrl = shallowRef<string | null>(null);
 const videoFileName = shallowRef<string | null>(null);
+const libraryOpen = ref(false);
 const currentTime = shallowRef(0);
 const duration = shallowRef(0);
 const loop = shallowRef(true);
@@ -93,6 +94,7 @@ function onMediaSelect(file: MediaFile): void {
 	videoFileName.value = file.name;
 	currentTime.value = 0;
 	duration.value = 0;
+	libraryOpen.value = false;
 }
 
 // Fetch the library when the sim source becomes visible.
@@ -220,52 +222,32 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 
 			<div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
 				<template v-if="!videoFileUrl">
+					<div
+						class="flex flex-col items-center justify-center gap-4 rounded-lg border border-default bg-elevated/30 px-6 py-10 text-center"
+					>
+						<div class="flex flex-col gap-1">
+							<p class="font-mono text-[11px] uppercase tracking-[0.16em] text-dimmed">
+								No media loaded
+							</p>
+							<p class="max-w-[42ch] text-[13px] leading-relaxed text-muted">
+								Pick a lets-play section from the server library, or drop a local
+								file. Playback feeds the pipeline clip loop.
+							</p>
+						</div>
+						<UButton
+							icon="i-lucide-server"
+							label="Browse server media"
+							@click="libraryOpen = true"
+						/>
+					</div>
+
 					<UFileUpload
 						accept="video/*"
 						:multiple="false"
 						:dropzone="true"
-						class="min-h-0 flex-1"
+						class="shrink-0"
 						@update:model-value="onFileSelect"
 					/>
-
-					<div class="flex shrink-0 flex-col gap-2">
-						<div class="flex items-center justify-between">
-							<h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
-								Media library · media/letsplays
-							</h3>
-							<UButton
-								size="xs"
-								variant="ghost"
-								icon="i-lucide-refresh-cw"
-								:loading="mediaRefreshing"
-								aria-label="Refresh media list"
-								@click="refreshMedia"
-							/>
-						</div>
-						<div class="max-h-56 overflow-y-auto rounded-lg border border-default divide-y divide-default">
-							<p v-if="mediaUnavailable" class="p-3 text-[12px] text-warning">
-								media/ introuvable sur le serveur — lance
-								<code class="font-mono">pnpm fetch:letsplays</code>.
-							</p>
-							<p v-else-if="mediaFiles.length === 0" class="p-3 text-[12px] text-muted">
-								Aucun média téléchargé —
-								<code class="font-mono">pnpm fetch:letsplays</code> pour remplir la
-								bibliothèque.
-							</p>
-							<button
-								v-for="file in mediaFiles"
-								:key="file.name"
-								type="button"
-								class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-elevated"
-								@click="onMediaSelect(file)"
-							>
-								<span class="truncate text-[12.5px] text-highlighted">{{ file.name }}</span>
-								<span class="shrink-0 font-mono text-[10px] text-dimmed">
-									{{ formatSize(file.size) }}
-								</span>
-							</button>
-						</div>
-					</div>
 				</template>
 
 				<template v-else>
@@ -333,6 +315,14 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 							size="xs"
 							aria-label="Loop video"
 						/>
+						<UButton
+							size="xs"
+							color="neutral"
+							variant="ghost"
+							icon="i-lucide-folder-open"
+							aria-label="Change media source"
+							@click="libraryOpen = true"
+						/>
 						<UBadge
 							:color="isCapturing ? 'primary' : 'neutral'"
 							variant="subtle"
@@ -343,6 +333,50 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 					</div>
 				</template>
 			</div>
+
+			<UModal
+				v-model:open="libraryOpen"
+				title="Media library"
+				description="media/letsplays on the server — click a file to load it into the sim stage"
+			>
+				<template #body>
+					<div class="flex flex-col gap-2">
+						<div class="flex items-center justify-end">
+							<UButton
+								size="xs"
+								variant="ghost"
+								icon="i-lucide-refresh-cw"
+								:loading="mediaRefreshing"
+								aria-label="Refresh media list"
+								@click="refreshMedia"
+							/>
+						</div>
+						<div class="max-h-96 overflow-y-auto rounded-lg border border-default divide-y divide-default">
+							<p v-if="mediaUnavailable" class="p-3 text-[12px] text-warning">
+								media/ introuvable sur le serveur — lance
+								<code class="font-mono">pnpm fetch:letsplays</code>.
+							</p>
+							<p v-else-if="mediaFiles.length === 0" class="p-3 text-[12px] text-muted">
+								Aucun média téléchargé —
+								<code class="font-mono">pnpm fetch:letsplays</code> pour remplir la
+								bibliothèque.
+							</p>
+							<button
+								v-for="file in mediaFiles"
+								:key="file.name"
+								type="button"
+								class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-elevated"
+								@click="onMediaSelect(file)"
+							>
+								<span class="truncate text-[12.5px] text-highlighted">{{ file.name }}</span>
+								<span class="shrink-0 font-mono text-[10px] text-dimmed">
+									{{ formatSize(file.size) }}
+								</span>
+							</button>
+						</div>
+					</div>
+				</template>
+			</UModal>
 		</div>
 	</section>
 </template>

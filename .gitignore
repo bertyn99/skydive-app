@@ -41,3 +41,4 @@ skills-lock.json
 # Stage 7 player runtime build artifacts
 dist-electron
 release
+public/responsive-harness.html
