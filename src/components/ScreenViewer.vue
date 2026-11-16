@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { shallowRef, useTemplateRef, watch, watchEffect } from "vue";
+import { computed, onMounted, shallowRef, useTemplateRef, watch, watchEffect } from "vue";
 import { storeToRefs } from "pinia";
+import { useQuery } from "@tanstack/vue-query";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -49,6 +50,55 @@ function onFileSelect(file: File | File[] | null | undefined) {
 	currentTime.value = 0;
 	duration.value = 0;
 }
+
+// --- Server media library (media/letsplays on the server) -------------------
+
+interface MediaFile {
+	name: string;
+	size: number;
+}
+
+const mediaLibrary = useQuery({
+	queryKey: ["media-library"],
+	queryFn: async (): Promise<MediaFile[]> => {
+		const res = await fetch("/api/media");
+		if (!res.ok) throw new Error(`media list failed (${res.status})`);
+		const body = (await res.json()) as { files: MediaFile[] };
+		return body.files;
+	},
+});
+
+const mediaFiles = computed(() => mediaLibrary.data.value ?? []);
+const mediaUnavailable = computed(() => mediaLibrary.error.value !== null);
+const mediaRefreshing = computed(() => mediaLibrary.isFetching.value);
+
+function refreshMedia(): void {
+	void mediaLibrary.refetch();
+}
+
+function formatSize(bytes: number): string {
+	if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+	return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
+/** Plays straight off the server — no local copy needed. */
+function onMediaSelect(file: MediaFile): void {
+	if (isCapturing.value) {
+		session.stopCapture();
+	}
+	if (videoFileUrl.value?.startsWith("blob:")) {
+		URL.revokeObjectURL(videoFileUrl.value);
+	}
+	videoFileUrl.value = `/api/media/file/${encodeURIComponent(file.name)}`;
+	videoFileName.value = file.name;
+	currentTime.value = 0;
+	duration.value = 0;
+}
+
+// Fetch the library when the sim source becomes visible.
+onMounted(() => {
+	refreshMedia();
+});
 
 // Hand the element's capture stream to the store once metadata is ready.
 function onLoadedMetadata() {
@@ -169,14 +219,54 @@ watch([videoFileUrl, videoFileStream], ([url, stream]) => {
 			</div>
 
 			<div v-else class="flex min-h-0 flex-1 flex-col gap-3">
-				<UFileUpload
-					v-if="!videoFileUrl"
-					accept="video/*"
-					:multiple="false"
-					:dropzone="true"
-					class="min-h-0 flex-1"
-					@update:model-value="onFileSelect"
-				/>
+				<template v-if="!videoFileUrl">
+					<UFileUpload
+						accept="video/*"
+						:multiple="false"
+						:dropzone="true"
+						class="min-h-0 flex-1"
+						@update:model-value="onFileSelect"
+					/>
+
+					<div class="flex shrink-0 flex-col gap-2">
+						<div class="flex items-center justify-between">
+							<h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-dimmed">
+								Media library · media/letsplays
+							</h3>
+							<UButton
+								size="xs"
+								variant="ghost"
+								icon="i-lucide-refresh-cw"
+								:loading="mediaRefreshing"
+								aria-label="Refresh media list"
+								@click="refreshMedia"
+							/>
+						</div>
+						<div class="max-h-56 overflow-y-auto rounded-lg border border-default divide-y divide-default">
+							<p v-if="mediaUnavailable" class="p-3 text-[12px] text-warning">
+								media/ introuvable sur le serveur — lance
+								<code class="font-mono">pnpm fetch:letsplays</code>.
+							</p>
+							<p v-else-if="mediaFiles.length === 0" class="p-3 text-[12px] text-muted">
+								Aucun média téléchargé —
+								<code class="font-mono">pnpm fetch:letsplays</code> pour remplir la
+								bibliothèque.
+							</p>
+							<button
+								v-for="file in mediaFiles"
+								:key="file.name"
+								type="button"
+								class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-elevated"
+								@click="onMediaSelect(file)"
+							>
+								<span class="truncate text-[12.5px] text-highlighted">{{ file.name }}</span>
+								<span class="shrink-0 font-mono text-[10px] text-dimmed">
+									{{ formatSize(file.size) }}
+								</span>
+							</button>
+						</div>
+					</div>
+				</template>
 
 				<template v-else>
 					<div
