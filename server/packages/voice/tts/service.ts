@@ -135,8 +135,12 @@ function defaultChain(): TtsEngineEntry[] {
 		// Google (translate endpoint) sits above Edge: both keyless and online,
 		// but Edge currently 403-blocks server clients while Google works.
 		darwin: ["voipi-macos", "piper-local", "voipi-google", "voipi-edge", "elevenlabs", "mistral"],
-		linux: ["piper-local", "voipi-google", "voipi-edge", "elevenlabs", "mistral"],
-		win32: ["piper-local", "voipi-google", "voipi-edge", "elevenlabs", "mistral"],
+		// Measured on the dev machine: piper spends 17s per line under load
+		// (model reload per spawn, WSL I/O, CPU contention with the game) vs
+		// Google's ~0.8s — menu narration needs sub-second latency, so Google
+		// leads and piper stays as the offline fallback.
+		linux: ["voipi-google", "piper-local", "voipi-edge", "elevenlabs", "mistral"],
+		win32: ["voipi-google", "piper-local", "voipi-edge", "elevenlabs", "mistral"],
 	};
 	const envChain = process.env.TTS_CHAIN?.split(",")
 		.map((id) => id.trim())
@@ -194,6 +198,23 @@ export async function probeTtsEngine(id: TtsEngineId): Promise<TtsEngineProbe> {
 }
 
 /**
+ * Exact-text synthesis cache. Menu narration repeats lines constantly
+ * (re-opening a menu, arrowing back and forth, returning to a category),
+ * and the dominant latency is network synthesis (~800ms per fresh line).
+ * Keyed by engine+text; LRU eviction; empty text never caches. The cached
+ * flag rides provenance so the dashboard can show hits.
+ */
+const SYNTH_CACHE_MAX = 256;
+const synthCache = new Map<
+	string,
+	{ audio: string; mimeType: TtsEngineEntry["mime"] }
+>();
+
+function cacheKey(engine: TtsEngineId, text: string): string {
+	return `${engine}:${text}`;
+}
+
+/**
  * Synthesize speech with the requested engine, falling back down the
  * platform chain on failure. Returns null when every engine fails — the
  * caller decides to skip the audio broadcast (SILENCE wins).
@@ -202,22 +223,56 @@ export async function synthesizeSpeech(
 	text: string,
 	requested: TtsEngineId,
 ): Promise<TtsResult | null> {
+	const normalized = text.trim();
+	if (!normalized) return null;
+
 	const chain: TtsEngineEntry[] = [
 		REGISTRY[requested],
 		...defaultChain().filter((entry) => entry.id !== requested),
 	];
 
+	// Cache check walks the chain order so a hit respects the requested
+	// engine first (identical text synthesized by two engines sounds
+	// different — prefer the one the user asked for).
+	for (const entry of chain) {
+		const hit = synthCache.get(cacheKey(entry.id, normalized));
+		if (hit) {
+			// LRU refresh.
+			synthCache.delete(cacheKey(entry.id, normalized));
+			synthCache.set(cacheKey(entry.id, normalized), hit);
+			return {
+				audio: hit.audio,
+				mimeType: hit.mimeType,
+				provenance: {
+					engine: entry.id,
+					fallbackFrom: null,
+					latencyMs: 0,
+					cached: true,
+				},
+			};
+		}
+	}
+
 	let fallbackFrom: TtsEngineId | null = null;
 	for (const entry of chain) {
 		const startedAt = Date.now();
 		try {
-			const { audio, cached } = await entry.synthesize(text);
+			const { audio, cached } = await entry.synthesize(normalized);
 			if (!audio) throw new Error("engine returned empty audio");
 			const latencyMs = Date.now() - startedAt;
 			if (fallbackFrom) {
 				console.warn(
 					`[tts] fallback: ${fallbackFrom} failed → ${entry.id} succeeded (${latencyMs}ms)`,
 				);
+			}
+			if (!cached) {
+				synthCache.set(cacheKey(entry.id, normalized), {
+					audio,
+					mimeType: entry.mime,
+				});
+				while (synthCache.size > SYNTH_CACHE_MAX) {
+					synthCache.delete(synthCache.keys().next().value!);
+				}
 			}
 			return {
 				audio,

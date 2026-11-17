@@ -8,7 +8,18 @@
 // are fine here: the plugin's parser whitelists what it can execute and
 // ignores the rest.
 const MAX_ENTRIES = 50;
-const MAX_AGE_MS = 15_000;
+const DEFAULT_TTL_MS = 15_000;
+
+/**
+ * Per-action TTL overrides: immediate guidance dies fast, but navigation
+ * actions must survive long loading screens (the plugin pauses polling
+ * during loads, and its `update`-loop timers tick through them — a 15s TTL
+ * would drop an autowalk command before the plugin wakes up).
+ */
+const ACTION_TTL_MS: Record<string, number> = {
+	autowalkTo: 60_000,
+	autowalkCancel: 60_000,
+};
 
 export interface QueuedAction {
 	id: number;
@@ -17,14 +28,15 @@ export interface QueuedAction {
 	/** Which pipeline leg produced it (fused | gated | question). */
 	source: string;
 	createdAt: number;
+	ttlMs: number;
 }
 
 let nextId = 1;
 const queue: QueuedAction[] = [];
 
 function prune(): void {
-	const cutoff = Date.now() - MAX_AGE_MS;
-	while (queue.length > 0 && queue[0].createdAt < cutoff) {
+	const now = Date.now();
+	while (queue.length > 0 && now - queue[0]!.createdAt > queue[0]!.ttlMs) {
 		queue.shift();
 	}
 	while (queue.length > MAX_ENTRIES) {
@@ -43,6 +55,7 @@ export function enqueueActions(
 			params: action.params,
 			source,
 			createdAt: Date.now(),
+			ttlMs: ACTION_TTL_MS[action.type] ?? DEFAULT_TTL_MS,
 		});
 	}
 	prune();

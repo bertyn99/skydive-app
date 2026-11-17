@@ -196,7 +196,8 @@ skydive-app/
 │   ├── api/               # Nitro API routes (file-based, thin)
 │   ├── routes/            # Nitro routes incl. /_ws WebSocket
 │   └── utils/             # cross-cutting only: engine, gate, gemini,
-│                          #   protocol, reflex, capture, silence, connectors
+│                          #   protocol, reflex, speech-arbiter, menu-speech,
+│                          #   capture, silence, connectors
 ├── public/                # Static files served at root
 ├── docs/adr/              # Architecture decision records
 ├── vite.config.ts         # Vite config (Vue + Nuxt UI + Nitro plugins)

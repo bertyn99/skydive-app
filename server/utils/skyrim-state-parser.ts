@@ -149,6 +149,91 @@ function formatQuest(strings: Record<string, unknown>): string {
 	return quest ? `### Quête active\n${quest}` : "";
 }
 
+const FLAG_FR: Record<string, string> = {
+	locked: "verrouillé",
+	empty: "vide",
+	corpse: "cadavre",
+	open: "ouvert",
+	harvested: "récolté",
+};
+
+/**
+ * Skyrim Access coexistence (W2): when their ESP is installed, the plugin
+ * flags `skyrim_access.installed` and their mod owns the object-scanner
+ * channel (docs/ACCESSIBILITY.md §4). We then hide `### Objets proches`
+ * from the composer context so it never narrates objects — tactical reflex
+ * (fast lane) is unaffected.
+ */
+function formatWorldObjects(
+	floatLists: Record<string, unknown>,
+	stringLists: Record<string, unknown>,
+	ints: Record<string, unknown>,
+): string {
+	if (getInt(ints, "skyrim_access.installed") === 1) return "";
+
+	const names = getStringList(stringLists, "world.objects.name");
+	const categories = getStringList(stringLists, "world.objects.category");
+	const flags = getStringList(stringLists, "world.objects.flags");
+	const compass = getStringList(stringLists, "world.objects.compass");
+	const distances = getNumberList(floatLists, "world.objects.distance_m");
+	const count = getInt(ints, "world.objects.count") ?? names.length;
+
+	if (count === 0 || names.length === 0) return "";
+
+	const objects = names.map((name, i) => ({
+		name,
+		category: categories[i] ?? "",
+		flags: (flags[i] ?? "").split("|").filter(Boolean),
+		compass: compass[i] ?? null,
+		distance: distances[i] ?? null,
+	}));
+
+	// The plugin sorts nearest-first; re-sort defensively (parser must not
+	// trust the producer).
+	objects.sort((a, b) => (a.distance ?? 999) - (b.distance ?? 999));
+
+	const lines = objects.map((obj) => {
+		const parts = [`- ${obj.name}`];
+		const category = obj.category !== "" && obj.category !== "other" ? `(${obj.category})` : null;
+		if (category) parts.push(category);
+		if (obj.distance !== null) parts.push(`à ${Math.round(obj.distance)}m`);
+		if (obj.compass) parts.push(`direction ${obj.compass.toLowerCase()}`);
+		const frFlags = obj.flags.map((flag) => FLAG_FR[flag]).filter(Boolean);
+		if (frFlags.length > 0) parts.push(frFlags.join(", "));
+		return parts.join(", ");
+	});
+
+	return `### Objets proches (${count})\n${lines.join("\n")}`;
+}
+
+/** A dump older than this is a dead game's last breath — drop it. */
+const DUMP_STALE_MS = 10_000;
+
+function formatEffects(stringLists: Record<string, unknown>): string {
+	const effects = getStringList(stringLists, "effects.active");
+	if (effects.length === 0) return "";
+	const lines = effects.map((effect) => `- ${effect}`);
+	return `### Effets actifs\n${lines.join("\n")}`;
+}
+
+function formatInventory(
+	floatLists: Record<string, unknown>,
+	stringLists: Record<string, unknown>,
+	ints: Record<string, unknown>,
+): string {
+	const names = getStringList(stringLists, "inventory.name");
+	const counts = getNumberList(floatLists, "inventory.count");
+	const size = getInt(ints, "inventory.size") ?? names.length;
+	if (size === 0 || names.length === 0) return "";
+
+	const lines = names.map((name, i) => {
+		const count = counts[i];
+		if (count !== undefined && count > 1) return `- ${name} x${Math.round(count)}`;
+		return `- ${name}`;
+	});
+	return `### Inventaire (${size})\n${lines.join("\n")}`;
+}
+
 export function parseSkyrimState(raw: Record<string, unknown>): string {
 	try {
 		const floats = getMap(raw, "float");
@@ -157,10 +242,21 @@ export function parseSkyrimState(raw: Record<string, unknown>): string {
 		const floatLists = getMap(raw, "floatList");
 		const stringLists = getMap(raw, "stringList");
 
+		// Freshness guard (dump v2): the file survives the game quitting, and
+		// a quit game must not whisper stale state into Gemini forever. Fixtures
+		// without `dump.timestamp` (pre-v2) are never dropped.
+		const timestamp = getFloat(floats, "dump.timestamp");
+		if (timestamp !== null && Date.now() - timestamp > DUMP_STALE_MS) {
+			return "";
+		}
+
 		const sections = [
 			formatPlayer(floats, ints, strings),
 			formatScene(ints),
 			formatNpcs(floatLists, stringLists, ints),
+			formatWorldObjects(floatLists, stringLists, ints),
+			formatInventory(floatLists, stringLists, ints),
+			formatEffects(stringLists),
 			formatQuest(strings),
 		].filter(Boolean);
 

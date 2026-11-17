@@ -34,7 +34,15 @@ const PORT = Number(process.env.SKYGUIDE_PORT ?? 3000);
 const HEALTH_URL = `http://127.0.0.1:${PORT}/api/config`;
 /** Window/source title match for the game (LIFT-PLAN: /skyrim/i). */
 const SKYRIM_SOURCE_RE = /skyrim/i;
-const PTT_ACCELERATOR = process.env.SKYGUIDE_PTT_KEY ?? "F9";
+/**
+ * Push-to-talk accelerator. F9 default was dropped: OEM tools (MyASUS,
+ * Armoury Crate, McAfee) hook F9 on several machines and it locked the
+ * Windows screen mid-game. F7 is unused by vanilla Skyrim UI and by
+ * skymp's companion page (which owns F6). Override with
+ * SKYGUIDE_PTT_KEY (Electron accelerator syntax, e.g. "F8" or
+ * "CommandOrControl+Shift+Space").
+ */
+const PTT_ACCELERATOR = process.env.SKYGUIDE_PTT_KEY ?? "F7";
 const SIDECAR_RESTART_MAX = 5;
 const SIDECAR_RESTART_DELAY_MS = 2000;
 const HEALTH_TIMEOUT_MS = 30_000;
@@ -205,9 +213,24 @@ async function createWindow(): Promise<void> {
 	});
 
 	const devUrl = process.env["VITE_DEV_SERVER_URL"];
-	const url = devUrl
-		? `${devUrl.replace(/\/+$/, "")}/player`
-		: `http://127.0.0.1:${PORT}/player`;
+	const base = devUrl
+		? devUrl.replace(/\/+$/, "")
+		: `http://127.0.0.1:${PORT}`;
+
+	// WSLg makes GUI + audio + mic work from WSL2 (PulseAudioRDPSink/Source),
+	// but desktopCapturer only enumerates WSL windows — the Skyrim window is
+	// invisible from here, so ambient clips and /skyrim/i capture can never
+	// work. Say it loudly instead of falling back silently.
+	if (process.platform === "linux" && process.env.WSL_DISTRO_NAME) {
+		console.warn(
+			`[player] WSL detected (${process.env.WSL_DISTRO_NAME}) — desktopCapturer cannot see Windows windows; ` +
+				"run `pnpm dev:player` from Windows (PowerShell) for Skyrim capture + native audio",
+		);
+	}
+
+	// Pass the actual PTT key so the renderer displays the truth (it cannot
+	// read main-process env).
+	const url = `${base}/player?ptt=${encodeURIComponent(PTT_ACCELERATOR)}`;
 	await win.loadURL(url);
 	console.log(`[player] renderer loaded: ${url}`);
 

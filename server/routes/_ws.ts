@@ -9,6 +9,7 @@ import {
 	unregisterClient,
 	updateConfig,
 	applyProfile,
+	notifyAudioDone,
 } from "../utils/engine";
 
 const CLIP_FRAME_TYPE = 1;
@@ -124,6 +125,11 @@ export default defineWebSocketHandler({
 								: "audio/webm",
 						);
 					}
+					break;
+				case "audio_done":
+					// Speech-arbiter ack: the client finished (or stopped) the
+					// current utterance — the queue channel may speak again.
+					notifyAudioDone();
 					break;
 				default:
 					peer.send(

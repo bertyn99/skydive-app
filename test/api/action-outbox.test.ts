@@ -34,6 +34,21 @@ describe("action outbox", () => {
 		expect(newer.map((a) => a.id)).toEqual([3]);
 	});
 
+	it("applies per-action TTLs — navigation survives loading screens (W4)", () => {
+		enqueueActions(
+			[
+				{ type: "notification", params: { message: "x" } },
+				{ type: "autowalkTo", params: { formId: "0x1234", stopDistance: 100 } },
+				{ type: "autowalkCancel", params: {} },
+			],
+			"gated",
+		);
+		const all = actionsSince(0);
+		expect(all.find((a) => a.type === "notification")?.ttlMs).toBe(15_000);
+		expect(all.find((a) => a.type === "autowalkTo")?.ttlMs).toBe(60_000);
+		expect(all.find((a) => a.type === "autowalkCancel")?.ttlMs).toBe(60_000);
+	});
+
 	it("keeps unknown action types — the plugin parser filters them", () => {
 		enqueueActions(
 			[{ type: "some hallucinated verb", params: { anything: true } }],

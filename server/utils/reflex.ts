@@ -53,5 +53,34 @@ export function evaluateReflex(state: GameStateData): ReflexCallout | null {
 		}
 	}
 
+	// 4. Stuck (W3) — navigation blocker, lowest urgency of the four rules.
+	// The obstacle's relative bearing (fast-lane stuckRelDeg, -180..180)
+	// drives the turn direction; negative = to the player's left. Absent
+	// bearing (scanner sees nothing) degrades to the bare warning.
+	if (state.isStuck) {
+		const rel = state.stuckRelDeg;
+		const turn =
+			rel === undefined
+				? ""
+				: rel < 0
+					? " Tournez à gauche."
+					: " Tournez à droite.";
+		return {
+			rule: "stuck",
+			category: "navigation",
+			text: `Vous êtes bloqué.${turn}`,
+		};
+	}
+
+	// 5. Autowalk arrival (W6) — the cancel-channel payoff: "Arrivé."
+	// interrupts whatever is playing. Cooldown covers repeated arrivals.
+	if (state.navigation?.status === "arrived") {
+		return {
+			rule: "nav-arrival",
+			category: "navigation",
+			text: "Arrivé.",
+		};
+	}
+
 	return null;
 }

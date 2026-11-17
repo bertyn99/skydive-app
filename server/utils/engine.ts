@@ -38,10 +38,16 @@ import {
 	resolveComposerEngine,
 } from "../packages/composer";
 import { isSilent } from "./silence";
+import { decideUtterance, resolveChannel } from "./speech-arbiter";
+import { formatMenuSpeech } from "./menu-speech";
+import {
+	selectRadarCues,
+	RADAR_CADENCE_MS,
+} from "../packages/spatial";
 import { enqueueActions } from "./action-outbox";
-import type { GameStatePayload } from "./protocol";
+import type { GameStatePayload, MenuFocusState } from "./protocol";
 import type { SkyrimConnector } from "./skyrim-connector";
-import { SkyrimFileConnector } from "./skyrim-file-connector";
+import { SkyrimHybridConnector } from "./skyrim-hybrid-connector";
 
 export type PipelineMode = "fused" | "gated";
 
@@ -58,11 +64,28 @@ interface EngineState {
 	abortController: AbortController | null;
 	timer: ReturnType<typeof setInterval> | null;
 	processing: boolean;
+	/**
+	 * D2 narration re-cut: the periodic 6s ambient clip tier is OFF by
+	 * default — the VLM runs ON DEMAND (a question / "read this" grabs a
+	 * fresh clip). `SKYGUIDE_AMBIENT_CLIPS=1` restores the legacy cadence.
+	 */
+	ambientClipsEnabled: boolean;
 	latestGameState: GameStatePayload | null;
+	/** Latest mod-context dump riding the POST `context` field (see protocol.ts). */
+	latestModContext: Record<string, unknown> | null;
+	/** Monotonic token: newest menu utterance wins the audio slot. */
+	menuSynthToken: number;
 	/** Until this timestamp, high-priority mod context bypasses the ambient cooldown. */
 	urgentUntil: number;
 	/** Last reflex callout per rule (anti-spam cooldown). */
 	reflexLastFired: Map<string, number>;
+	/**
+	 * Speech-arbiter in-flight flag: set when an audio message is broadcast,
+	 * cleared on the client's `audio_done` ack (or after a safety timeout —
+	 * a disconnected client must not wedge the arbiter forever).
+	 */
+	audioInFlight: boolean;
+	audioInFlightAt: number;
 	pendingQuestion: string | null;
 	latestClipBuffer: Buffer | null;
 	wakeWordPending: boolean;
@@ -83,20 +106,28 @@ const state: EngineState = {
 	gateEngine: resolveGateEngine(process.env.GATE_ENGINE, "gemini"),
 	composerEngine: resolveComposerEngine(process.env.COMPOSER_ENGINE, defaultComposerEngine()),
 	ttsEngine: resolveTtsEngine(process.env.TTS_ENGINE, defaultTtsEngine()),
-	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "elevenlabs"),
+	// STT default = the local runner ("whisper-local" engine id), whose
+	// router prefers Parakeet TDT v3 via parakeet-cli for en/es/fr when the
+	// model + CLI are installed (Hex's default STT class). ElevenLabs stays
+	// in the fallback chain — the seam retries it if local STT fails.
+	sttEngine: resolveSttEngine(process.env.STT_ENGINE, "whisper-local"),
 	clients: new Set(),
 	abortController: null,
 	timer: null,
 	processing: false,
+	ambientClipsEnabled: process.env.SKYGUIDE_AMBIENT_CLIPS === "1",
 	latestGameState: null,
-	urgentUntil: 0,
+	latestModContext: null,
+	menuSynthToken: 0,	urgentUntil: 0,
 	reflexLastFired: new Map(),
+	audioInFlight: false,
+	audioInFlightAt: 0,
 	pendingQuestion: null,
 	latestClipBuffer: null,
 	wakeWordPending: false,
 	sttProcessing: false,
 	lastAnswerTime: 0,
-	connector: new SkyrimFileConnector(),
+	connector: new SkyrimHybridConnector(() => state.latestModContext),
 };
 
 function broadcast(message: Record<string, unknown>) {
@@ -167,7 +198,7 @@ async function speakToPlayer(input: {
 	latencyMs: number;
 	isQuestion: boolean;
 	provenance: {
-		tier: "gate" | "reflex";
+		tier: "gate" | "reflex" | "menu";
 		engine: string;
 		latencyMs: number;
 		relevance: number;
@@ -176,6 +207,7 @@ async function speakToPlayer(input: {
 		composerLatencyMs?: number;
 		composerFallbackFrom?: string | null;
 	};
+	firstRead?: boolean;
 }): Promise<void> {
 	const isRelevant = input.isQuestion || input.relevance >= 4;
 
@@ -201,14 +233,65 @@ async function speakToPlayer(input: {
 		log("info", "engine", `Skipping TTS — relevance ${input.relevance}/10`);
 		return;
 	}
-	if (isSilent(input.text)) {
+	if (input.provenance.tier !== "menu" && isSilent(input.text)) {
 		log("info", "engine", "Silent — skipping TTS");
 		return;
 	}
 
+	// Speech arbiter (W2): one gate before synthesis. Menu/console state is
+	// fast-lane `ui.*` — at most one 500ms tick old, never the stale dump.
+	const AUDIO_IN_FLIGHT_TIMEOUT_MS = 120_000;
+	const inFlight =
+		state.audioInFlight &&
+		Date.now() - state.audioInFlightAt < AUDIO_IN_FLIGHT_TIMEOUT_MS;
+	const channel = resolveChannel({ tier: input.provenance.tier, isQuestion: input.isQuestion });
+	const decision = decideUtterance({
+		channel,
+		menuOpen: state.latestGameState?.data.ui?.menuOpen ?? false,
+		consoleOpen: state.latestGameState?.data.ui?.consoleOpen ?? false,
+		isPlaying: inFlight,
+		firstRead: input.firstRead,
+	});
+	if (decision === "drop") {
+		log(
+			"info",
+			"arbiter",
+			`Dropped (${channel}) — menu=${state.latestGameState?.data.ui?.menuOpen ?? false} console=${state.latestGameState?.data.ui?.consoleOpen ?? false} inFlight=${inFlight}: "${input.text.slice(0, 50)}"`,
+		);
+		return;
+	}
+	if (decision === "stop-and-speak") {
+		// Cancel channel: stop whatever the client is playing before the new
+		// utterance lands (their Speak() = cancel + say).
+		broadcast({ type: "audio_stop" });
+		state.audioInFlight = false;
+	}
+
+	// Menu utterances are transient (list navigation at ~500ms cadence): a
+	// slow synth must never speak an item the player already scrolled past.
+	// Capture a token; if a newer menu utterance started while synthesizing,
+	// discard the result instead of broadcasting stale audio.
+	let menuToken: number | null = null;
+	if (channel === "menu") {
+		menuToken = ++state.menuSynthToken;
+	}
+
+	// Claim the slot BEFORE synthesize so a 100ms menu-focus POST sees
+	// isPlaying and firstRead can queue instead of stop-and-speak.
+	state.audioInFlight = true;
+	state.audioInFlightAt = Date.now();
+
 	const tts = await synthesizeSpeech(input.text, state.ttsEngine);
+	if (menuToken !== null && menuToken !== state.menuSynthToken) {
+		// Superseded while synthesizing — release and stay silent.
+		state.audioInFlight = false;
+		log("info", "menu", `Superseded while synthesizing — skipped: "${input.text.slice(0, 50)}"`);
+		return;
+	}
 	if (!tts) {
+		state.audioInFlight = false;
 		log("error", "tts", `All TTS engines failed — skipping audio for: ${input.text.slice(0, 60)}`);
+		flushDeferredMenu();
 		return;
 	}
 	if (input.isQuestion) {
@@ -223,6 +306,8 @@ async function speakToPlayer(input: {
 		buffer: tts.audio,
 		mimeType: tts.mimeType,
 		priority: input.isQuestion ? "answer" : "ambient",
+		channel,
+		enqueue: decision === "speak",
 		text: input.text,
 		provenance: {
 			tier: "tts",
@@ -232,6 +317,44 @@ async function speakToPlayer(input: {
 			fallbackFrom: tts.provenance.fallbackFrom,
 		},
 	});
+}
+
+/** Client ack: the current utterance finished (or was stopped). */
+export function notifyAudioDone(): void {
+	if (state.audioInFlight) {
+		state.audioInFlight = false;
+		log("info", "arbiter", "audio_done — channel idle");
+	}
+	flushDeferredMenu();
+}
+
+let deferredMenu: MenuFocusState | null = null;
+
+function speakMenu(menu: MenuFocusState | undefined, firstRead: boolean): void {
+	const menuLine = formatMenuSpeech(menu);
+	if (!menuLine || !menu?.event) return;
+	log("info", "menu", `${menu.event}: ${menuLine}`);
+	void speakToPlayer({
+		text: menuLine,
+		relevance: 8,
+		actions: [],
+		latencyMs: 0,
+		isQuestion: false,
+		firstRead,
+		provenance: {
+			tier: "menu",
+			engine: "rules·menu-focus",
+			latencyMs: 0,
+			relevance: 8,
+		},
+	});
+}
+
+function flushDeferredMenu(): void {
+	const menu = deferredMenu;
+	if (!menu) return;
+	deferredMenu = null;
+	speakMenu(menu, true);
 }
 
 /** Baseline pipeline: one fused Gemini call decides AND composes. */
@@ -419,8 +542,15 @@ async function runGatedPipeline(videoBuffer: Buffer): Promise<void> {
 }
 
 export function processClip(videoBuffer: Buffer, durationMs: number) {
-	// Keep latest clip for on-demand question processing
+	// D2 gate: with the ambient tier off, periodic clips are dropped unless a
+	// question is pending (Tier-2 on-demand — the voice flow sets
+	// `pendingQuestion` BEFORE the client's fresh clip arrives, so answers
+	// still work). `latestClipBuffer` is kept regardless — cheap and useful.
 	state.latestClipBuffer = videoBuffer;
+	if (!state.ambientClipsEnabled && !state.pendingQuestion) {
+		log("info", "engine", "Ambient clips off (D2) — clip kept for on-demand only");
+		return;
+	}
 	if (clipWorkerRunning) {
 		// Overwrite any older queued clip: we only care about the freshest frame.
 		pendingClip = { videoBuffer, durationMs };
@@ -495,6 +625,7 @@ function statusPayload() {
 	return {
 		isRunning: state.isRunning,
 		intervalMs: state.intervalMs,
+		ambientClipsEnabled: state.ambientClipsEnabled,
 		pipeline: state.pipeline,
 		gateEngine: state.gateEngine,
 		composerEngine: state.composerEngine,
@@ -582,7 +713,7 @@ export function start() {
 	log(
 		"info",
 		"engine",
-		`Engine started (expecting ${state.intervalMs}ms clips, tts=${state.ttsEngine}, stt=${state.sttEngine})`,
+		`Engine started (clips: ${state.ambientClipsEnabled ? `${state.intervalMs}ms ambient` : "on-demand only (D2)"} , tts=${state.ttsEngine}, stt=${state.sttEngine})`,
 	);
 	broadcast({ type: "status", ...statusPayload() });
 }
@@ -703,6 +834,7 @@ export function getState() {
 export function getConfig() {
 	return {
 		intervalMs: state.intervalMs,
+		ambientClipsEnabled: state.ambientClipsEnabled,
 		systemPrompt: state.systemPrompt,
 		pipeline: state.pipeline,
 		gateEngine: state.gateEngine,
@@ -882,6 +1014,9 @@ export async function processAudioChunk(audioBuffer: Buffer, mimeType: string) {
 
 export function updateGameState(payload: GameStatePayload): boolean {
 	state.latestGameState = payload;
+	if (payload.context && Object.keys(payload.context).length > 0) {
+		state.latestModContext = payload.context;
+	}
 
 	broadcast({
 		type: "gameState",
@@ -891,12 +1026,19 @@ export function updateGameState(payload: GameStatePayload): boolean {
 	});
 
 	// The dashboard still mirrors mod context when the engine is stopped, but
-	// a stopped engine must never speak (reflex TTS) or set urgency flags.
+	// a stopped engine must never speak (reflex TTS), sweep the radar, or set
+	// urgency flags.
 	if (!state.isRunning) return false;
+
+	// Radar sweeps ride the game's own 500ms POST cadence, throttled to the
+	// ported 2500ms (W5). Fire-and-forget: a slow dump read never delays the
+	// reflex path.
+	maybeSweepRadar();
 
 	// Reflex rules (Stage 5): canned 0ms callouts for true emergencies,
 	// bypassing the Gate and the composer entirely. Cooldown per rule.
 	const reflex = evaluateReflex(payload.data);
+	let spokeReflex = false;
 	if (reflex) {
 		const last = state.reflexLastFired.get(reflex.rule) ?? 0;
 		if (Date.now() - last >= REFLEX_COOLDOWN_MS) {
@@ -915,6 +1057,18 @@ export function updateGameState(payload: GameStatePayload): boolean {
 					relevance: 8,
 				},
 			});
+			spokeReflex = true;
+		}
+	}
+
+	// Menu focus is a 0ms canned line (no Gate). Danger this tick wins the
+	// speaker but must not erase the event — defer until audio_done.
+	if (payload.data.menu?.event) {
+		if (spokeReflex) {
+			deferredMenu = payload.data.menu;
+		} else {
+			deferredMenu = null;
+			speakMenu(payload.data.menu, payload.data.menu.firstRead === true);
 		}
 	}
 
@@ -933,4 +1087,40 @@ export function updateGameState(payload: GameStatePayload): boolean {
 	}
 
 	return false;
+}
+
+/**
+ * Ambient radar (W5): reads the context-lane dump at the ported 2500ms
+ * cadence and broadcasts `{"type":"spatial", cues:[…]}`. Driven by game
+ * POSTs (no standalone timer) so the radar dies with the game. Skyrim
+ * Access suppression lives inside the selection.
+ */
+let lastRadarSweepAt = 0;
+
+async function sweepRadar(): Promise<void> {
+	if (!state.connector) return;
+	try {
+		const context = await state.connector.getContext();
+		if (!context.raw) return;
+		const heading = state.latestGameState?.data.headingAngleZ ?? null;
+		const cues = selectRadarCues({ raw: context.raw, playerHeadingDeg: heading });
+		if (cues.length > 0) {
+			broadcast({ type: "spatial", cues });
+		}
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log("warn", "radar", `Sweep failed: ${msg}`);
+	}
+}
+
+function maybeSweepRadar(): void {
+	const now = Date.now();
+	if (now - lastRadarSweepAt < RADAR_CADENCE_MS) return;
+	// The radar is a walking aid: cue pings while a menu is open are noise
+	// that pokes between the menu narration lines (the player is reading a
+	// list, not crossing a field). Menu-open state is fast-lane ui.*.
+	const menuOpen = state.latestGameState?.data.ui?.menuOpen ?? false;
+	if (menuOpen) return;
+	lastRadarSweepAt = now;
+	void sweepRadar();
 }

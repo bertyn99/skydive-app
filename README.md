@@ -40,7 +40,12 @@ One app, two surfaces:
    (`server/packages/voice/`) — TTS and STT engines with per-platform
    fallback chains and probes (Mistral, ElevenLabs, Piper, Google, Edge,
    macOS `say`; Whisper/Parakeet locally).
-6. Suggested **actions** are broadcast to the dashboard *and* queued in an
+6. Independently of the Gate, **menu focus** from the plugin (`data.menu`)
+   is formatted in French (`server/utils/menu-speech.ts`) and spoken on the
+   arbiter’s `menu` channel — no Gemini. World flavour (`queue`) stays
+   silent while a gameplay menu is open; the console drops every channel.
+   If Skyrim Access is installed, the plugin does not send menu events.
+7. Suggested **actions** are broadcast to the dashboard *and* queued in an
    outbox (`GET /api/actions?since=<id>`) that the
    [SKSE plugin](https://github.com/bertyn99/skyguide-skse) polls and
    executes in-game.
@@ -50,7 +55,8 @@ Capture source                  Server (Nitro, :3000)
 ┌─────────────────┐      ┌────────────────────────────┐
 │ getDisplayMedia  │      │ Gate (shouldSpeak? engine)  │
 │ → MediaBunny    │─WS──▶│ → Composer (French prose)   │
-│   (MP4 encode)  │      │ → voice module TTS chain    │
+│   (MP4 encode)  │      │ → menu focus (no Gate)      │
+│                 │      │ → voice module TTS chain    │
 │                 │◀─WS──│   (Mistral/ElevenLabs/Piper)│
 │ audio queue     │      │   provenance on everything  │
 └─────────────────┘      └────────────────────────────┘
@@ -64,7 +70,9 @@ The game side lives in
 Skyrim Platform plugin that POSTs structured game state (protocol v1),
 polls `/api/actions?since=<id>` for at-most-once action delivery, and dumps
 mod context to `Data/Platform/SkyGuide/state.json` for the file connector
-the Gate and Composer read.
+the Gate and Composer read. ItemMenu focus rides the same POST as
+`data.menu` (spoken here, not in the plugin) — details in the plugin’s
+[`docs/MENU-FOCUS.md`](https://github.com/bertyn99/skyguide-skse).
 
 ## Getting started
 
@@ -182,7 +190,9 @@ server/                     # Nitro server (WS + API)
   routes/_ws.ts             #   WebSocket handler
   packages/voice/           #   TTS/STT seam (registry + fallback chains)
   packages/composer/        #   Composer seam (registry + fallback chain)
-  utils/engine.ts           #   pipelines (fused/gated), reflex, profiles
+  utils/engine.ts           #   pipelines (fused/gated), reflex, menu focus
+  utils/speech-arbiter.ts   #   cancel / queue / menu
+  utils/menu-speech.ts      #   ItemMenu → French observation
   utils/gate.ts             #   System 1 decision model
   utils/action-outbox.ts    #   SKSE action delivery
 
@@ -194,9 +204,9 @@ docs/adr/                   # Architecture decision records
 ## Documentation
 
 - [`LIFT-PLAN.md`](LIFT-PLAN.md) — stage-by-stage roadmap with verification state
-- [`GLOSSARY.md`](GLOSSARY.md) — domain vocabulary (Gate, Composer, Seam, SILENCE…)
-- [`docs/adr/`](docs/adr/) — decision records
-- Companion plugin: [skyguide-skse](https://github.com/bertyn99/skyguide-skse)
+- [`GLOSSARY.md`](GLOSSARY.md) — domain vocabulary (Gate, Composer, Seam, SILENCE, Menu focus…)
+- [`docs/adr/`](docs/adr/) — decision records (state channels, menu on the fast lane)
+- Companion plugin: [skyguide-skse](https://github.com/bertyn99/skyguide-skse) (see `docs/MENU-FOCUS.md`)
 
 ## License
 

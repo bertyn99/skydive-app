@@ -88,3 +88,11 @@ _Avoid_: provider, backend, model (a model powers an Engine)
 **Escalation**:
 The confidence-threshold policy that promotes a decision from Gate to Composer (or to cloud from local) when calibrated confidence is below threshold.
 _Avoid_: fallback, retry
+
+**Menu focus**:
+Structured Scaleform cursor on an ItemMenu (inventory, magic, container, barter, gift) posted on the fast lane as `data.menu` (`open` / `focus` / `close`). The plugin only reads `Ui.getString`; the app formats a French Observation (`menu-speech.ts`) and speaks it on the **menu** speech channel. Silent when Skyrim Access is installed. Does not go through the Gate or Composer.
+_Avoid_: screen reader, NVDA, menu narration (unqualified — Access still owns journal/map/lockpick)
+
+**Speech channel**:
+Arbiter lane for one utterance: `cancel` (reflex / answers — interrupts), `queue` (ambient — dropped while a gameplay menu is open or while something is playing), `menu` (ItemMenu dictation — allowed while `ui.menuOpen`; `firstRead` queues behind “Inventaire ouvert.”). Console open drops every channel.
+_Avoid_: priority (game-state), relevance

@@ -1,0 +1,47 @@
+{
+  "float": {
+    "player.health": 62,
+    "player.health_max": 100,
+    "player.magicka": 40,
+    "player.stamina": 85
+  },
+  "int": {
+    "player.is_in_interior": 0,
+    "player.in_combat": 0,
+    "player.in_dialogue": 0,
+    "player.is_running": 1,
+    "player.is_sneaking": 0,
+    "player.is_swimming": 0,
+    "player.is_weapon_drawn": 1,
+    "player.is_stuck": 0,
+    "player.obstacle_front": 0,
+    "enemies.count": 1,
+    "npcs.count": 2,
+    "dump.version": 2,
+    "skyrim_access.installed": 0,
+    "world.objects.count": 4
+  },
+  "string": {
+    "player.location": "Whiterun",
+    "player.compass": "Nord",
+    "quest_active": "Bleak Falls Barrow"
+  },
+  "floatList": {
+    "npcs.distance_m": [3.5, 12.2],
+    "world.objects.distance_m": [2.2, 8, 14, 18],
+    "world.objects.distance_u": [154, 560, 980, 1260],
+    "world.objects.form_id": [16777219, 16777217, 16777218, 16777220],
+    "world.objects.bearing_deg": [315, 10, 90, 270],
+    "world.objects.lock_level": [0, 25, 0, 0],
+    "world.objects.dz": [70, 0, 0, -20]
+  },
+  "stringList": {
+    "npcs.name": ["Nord marchand", "Garde de Whiterun"],
+    "npcs.clock": ["11h", "3h"],
+    "world.objects.name": ["Bandit", "Coffre", "Porte", "Souche"],
+    "world.objects.category": ["npc", "container", "door", "flora"],
+    "world.objects.flags": ["corpse", "locked", "", "harvested"],
+    "world.objects.compass": ["Nord-Ouest", "Nord", "Est", "Ouest"],
+    "effects.active": ["Guérison mineure"]
+  }
+}

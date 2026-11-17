@@ -47,6 +47,28 @@ function getPiper(): Promise<Piper> {
 	return providerPromise;
 }
 
+// Piper's binary is single-shot: concurrent toAudio calls abort each other
+// ("The operation was aborted" storms during fast menu navigation). Serialize
+// through a chain; a superseded request (newer text arrived) skips its turn
+// instead of synthesizing dead audio.
+let piperChain: Promise<void> = Promise.resolve();
+let piperTicket = 0;
+
+function withPiperSlot<T>(run: () => Promise<T>): Promise<T> {
+	const ticket = ++piperTicket;
+	const execution = piperChain.then(async () => {
+		if (ticket !== piperTicket) {
+			throw new Error("piper-superseded");
+		}
+		return run();
+	});
+	piperChain = execution.then(
+		() => undefined,
+		() => undefined,
+	);
+	return execution;
+}
+
 async function isExecutable(filePath: string): Promise<boolean> {
 	try {
 		await access(filePath, constants.X_OK);
@@ -105,8 +127,10 @@ export async function textToSpeechPiperLocal(text: string): Promise<string> {
 	const startedAt = Date.now();
 	const signal = AbortSignal.timeout(PIPER_TTS_TIMEOUT_MS);
 
-	const piper = await getPiper();
-	const audio = await piper.toAudio(normalizedText, { signal });
+	const audio = await withPiperSlot(async () => {
+		const piper = await getPiper();
+		return piper.toAudio(normalizedText, { signal });
+	});
 
 	if (!audio.data || audio.data.length === 0) {
 		throw new Error(`Piper produced no audio (voice ${resolvedVoiceId()})`);
